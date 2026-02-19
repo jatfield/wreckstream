@@ -34,12 +34,14 @@ const colors = {
 const player = {
     x: canvas.width / 2,
     y: canvas.height / 2,
+    z: 0,
     size: 15,
     speed: 4,
     vx: 0,
     vy: 0,
     trail: [],
     maxTrailLength: 20,
+    debrisPieces: [], // Separate debris pieces for tail
 };
 
 // Game objects
@@ -48,6 +50,11 @@ let particles = [];
 
 // Input handling
 const keys = {};
+const mouse = {
+    x: canvas.width / 2,
+    y: canvas.height / 2
+};
+
 window.addEventListener('keydown', (e) => {
     keys[e.key] = true;
     if (e.key === ' ') {
@@ -61,15 +68,24 @@ window.addEventListener('keyup', (e) => {
     keys[e.key] = false;
 });
 
+// Mouse control
+canvas.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    mouse.x = e.clientX - rect.left;
+    mouse.y = e.clientY - rect.top;
+});
+
 // Start/restart game
 function startGame() {
     gameState = 'playing';
     score = 0;
     player.x = canvas.width / 2;
     player.y = canvas.height / 2;
+    player.z = 0;
     player.vx = 0;
     player.vy = 0;
     player.trail = [];
+    player.debrisPieces = [];
     player.maxTrailLength = 20;
     enemies = [];
     particles = [];
@@ -80,9 +96,10 @@ function startGame() {
 // Spawn enemy from edge
 function spawnEnemy() {
     const edge = Math.floor(Math.random() * 4); // 0: top, 1: right, 2: bottom, 3: left
-    let x, y, vx, vy;
+    let x, y, z, vx, vy;
     const speed = GAME_CONFIG.MIN_ENEMY_SPEED + Math.random() * (GAME_CONFIG.MAX_ENEMY_SPEED - GAME_CONFIG.MIN_ENEMY_SPEED);
     const size = 8 + Math.random() * 12;
+    z = Math.random() * 100; // Random depth for 3D effect
 
     switch (edge) {
         case 0: // top
@@ -111,7 +128,7 @@ function spawnEnemy() {
             break;
     }
 
-    enemies.push({ x, y, vx, vy, size });
+    enemies.push({ x, y, z, vx, vy, size, rotation: Math.random() * Math.PI * 2 });
 }
 
 // Create particles
@@ -135,19 +152,22 @@ function update() {
 
     frameCount++;
 
-    // Player movement
-    player.vx = 0;
-    player.vy = 0;
-
-    if (keys['ArrowLeft'] || keys['a'] || keys['A']) player.vx = -player.speed;
-    if (keys['ArrowRight'] || keys['d'] || keys['D']) player.vx = player.speed;
-    if (keys['ArrowUp'] || keys['w'] || keys['W']) player.vy = -player.speed;
-    if (keys['ArrowDown'] || keys['s'] || keys['S']) player.vy = player.speed;
-
-    // Apply diagonal movement normalization
-    if (player.vx !== 0 && player.vy !== 0) {
-        player.vx *= GAME_CONFIG.DIAGONAL_MOVEMENT_FACTOR;
-        player.vy *= GAME_CONFIG.DIAGONAL_MOVEMENT_FACTOR;
+    // Player movement - use mouse control
+    const dx = mouse.x - player.x;
+    const dy = mouse.y - player.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    
+    // Calculate actual speed based on movement (for tail length calculation)
+    let actualSpeed = 0;
+    
+    if (distance > 5) { // Dead zone to prevent jitter
+        const moveSpeed = Math.min(player.speed, distance * 0.15);
+        player.vx = (dx / distance) * moveSpeed;
+        player.vy = (dy / distance) * moveSpeed;
+        actualSpeed = Math.sqrt(player.vx * player.vx + player.vy * player.vy);
+    } else {
+        player.vx = 0;
+        player.vy = 0;
     }
 
     player.x += player.vx;
@@ -157,11 +177,23 @@ function update() {
     player.x = Math.max(player.size, Math.min(canvas.width - player.size, player.x));
     player.y = Math.max(player.size, Math.min(canvas.height - player.size, player.y));
 
-    // Update trail
+    // Update trail and visible tail length based on speed
+    const speedFactor = actualSpeed / player.speed; // 0 to 1
+    const visibleTailLength = Math.floor(player.maxTrailLength * speedFactor);
+    
     if (player.vx !== 0 || player.vy !== 0 || player.trail.length === 0) {
         player.trail.push({ x: player.x, y: player.y });
         if (player.trail.length > player.maxTrailLength) {
             player.trail.shift();
+        }
+    }
+    
+    // Update debris pieces in tail
+    for (let i = player.debrisPieces.length - 1; i >= 0; i--) {
+        const piece = player.debrisPieces[i];
+        piece.life--;
+        if (piece.life <= 0 || i >= visibleTailLength) {
+            player.debrisPieces.splice(i, 1);
         }
     }
 
@@ -175,6 +207,7 @@ function update() {
         const enemy = enemies[i];
         enemy.x += enemy.vx;
         enemy.y += enemy.vy;
+        enemy.rotation += 0.02; // Rotate for 3D effect
 
         // Remove off-screen enemies
         if (
@@ -196,22 +229,43 @@ function update() {
             return;
         }
 
-        // Check collision with tail (exclude recent trail points near ship)
-        const trailCheckLength = Math.max(0, player.trail.length - GAME_CONFIG.TRAIL_COLLISION_BUFFER);
-        for (let j = 0; j < trailCheckLength; j++) {
-            const trail = player.trail[j];
-            const tdx = enemy.x - trail.x;
-            const tdy = enemy.y - trail.y;
-            const tdist = Math.sqrt(tdx * tdx + tdy * tdy);
-            if (tdist < enemy.size + GAME_CONFIG.TRAIL_COLLISION_RADIUS) {
-                // Enemy destroyed by tail
-                enemies.splice(i, 1);
-                score += Math.floor(enemy.size);
-                player.maxTrailLength += GAME_CONFIG.TRAIL_GROWTH_PER_ENEMY;
-                createParticles(enemy.x, enemy.y, colors.debris, 15);
-                updateUI();
+        // Check collision with debris pieces in tail
+        let hitByTail = false;
+        for (let j = GAME_CONFIG.TRAIL_COLLISION_BUFFER; j < player.debrisPieces.length; j++) {
+            const piece = player.debrisPieces[j];
+            const pdx = enemy.x - piece.x;
+            const pdy = enemy.y - piece.y;
+            const pdist = Math.sqrt(pdx * pdx + pdy * pdy);
+            if (pdist < enemy.size + piece.size) {
+                hitByTail = true;
                 break;
             }
+        }
+        
+        if (hitByTail) {
+            // Enemy destroyed by tail - break into debris pieces
+            enemies.splice(i, 1);
+            score += Math.floor(enemy.size);
+            player.maxTrailLength += GAME_CONFIG.TRAIL_GROWTH_PER_ENEMY;
+            
+            // Create debris pieces from destroyed enemy
+            const numPieces = Math.floor(enemy.size / 3) + 3;
+            for (let p = 0; p < numPieces; p++) {
+                const angle = (Math.PI * 2 * p) / numPieces;
+                const offsetX = Math.cos(angle) * enemy.size * 0.3;
+                const offsetY = Math.sin(angle) * enemy.size * 0.3;
+                player.debrisPieces.push({
+                    x: enemy.x + offsetX,
+                    y: enemy.y + offsetY,
+                    z: enemy.z,
+                    size: 3 + Math.random() * 3,
+                    rotation: Math.random() * Math.PI * 2,
+                    life: player.maxTrailLength * 2
+                });
+            }
+            
+            createParticles(enemy.x, enemy.y, colors.debris, 15);
+            updateUI();
         }
     }
 
@@ -250,31 +304,47 @@ function draw() {
 
 // Draw game elements
 function drawGameElements() {
-    ctx.strokeStyle = colors.tail;
-    ctx.lineWidth = 10;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.shadowBlur = 20;
-    ctx.shadowColor = colors.tail;
+    // Draw debris pieces (tail made of separate pieces)
+    player.debrisPieces.forEach((piece, i) => {
+        const alpha = Math.min(1, i / (player.debrisPieces.length * 0.3));
+        const scale = 1 + (piece.z / 200); // 3D perspective scaling
+        const renderSize = piece.size * scale;
+        
+        ctx.save();
+        ctx.translate(piece.x, piece.y);
+        ctx.rotate(piece.rotation);
+        ctx.fillStyle = colors.debris;
+        ctx.shadowBlur = 15 * scale;
+        ctx.shadowColor = colors.debris;
+        ctx.globalAlpha = alpha;
+        
+        // Draw as a cube-like shape (3D object on 2D plane)
+        ctx.fillRect(-renderSize, -renderSize, renderSize * 2, renderSize * 2);
+        
+        // Add highlight for 3D effect
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+        ctx.fillRect(-renderSize, -renderSize, renderSize, renderSize);
+        
+        ctx.globalAlpha = 1;
+        ctx.restore();
+    });
 
-    if (player.trail.length > 1) {
+    // Draw connecting line between debris pieces (subtle)
+    if (player.debrisPieces.length > 1) {
+        ctx.strokeStyle = colors.tail;
+        ctx.lineWidth = 2;
+        ctx.lineCap = 'round';
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = colors.tail;
+        ctx.globalAlpha = 0.3;
+        
         ctx.beginPath();
-        ctx.moveTo(player.trail[0].x, player.trail[0].y);
-        for (let i = 1; i < player.trail.length; i++) {
-            ctx.lineTo(player.trail[i].x, player.trail[i].y);
+        ctx.moveTo(player.debrisPieces[0].x, player.debrisPieces[0].y);
+        for (let i = 1; i < player.debrisPieces.length; i++) {
+            ctx.lineTo(player.debrisPieces[i].x, player.debrisPieces[i].y);
         }
         ctx.stroke();
-    }
-
-    // Draw trail particles
-    for (let i = 0; i < player.trail.length; i++) {
-        const alpha = i / player.trail.length;
-        ctx.fillStyle = `rgba(160, 216, 241, ${alpha * 0.5})`;
-        ctx.shadowBlur = 15;
-        ctx.shadowColor = colors.tail;
-        ctx.beginPath();
-        ctx.arc(player.trail[i].x, player.trail[i].y, 6 * alpha, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.globalAlpha = 1;
     }
 
     // Draw player ship
@@ -289,22 +359,42 @@ function drawGameElements() {
     ctx.closePath();
     ctx.fill();
 
-    // Draw enemies
+    // Draw enemies as 3D cubes
     enemies.forEach((enemy) => {
+        const scale = 1 + (enemy.z / 200); // Perspective scaling based on z
+        const renderSize = enemy.size * scale;
+        
+        ctx.save();
+        ctx.translate(enemy.x, enemy.y);
+        ctx.rotate(enemy.rotation);
+        
         ctx.fillStyle = colors.enemy;
-        ctx.shadowBlur = 20;
+        ctx.shadowBlur = 20 * scale;
         ctx.shadowColor = colors.enemy;
+        
+        // Draw main face
+        ctx.fillRect(-renderSize, -renderSize, renderSize * 2, renderSize * 2);
+        
+        // Draw side faces for 3D effect
+        ctx.fillStyle = 'rgba(180, 248, 200, 0.6)';
         ctx.beginPath();
-        ctx.arc(enemy.x, enemy.y, enemy.size, 0, Math.PI * 2);
+        ctx.moveTo(renderSize, -renderSize);
+        ctx.lineTo(renderSize * 1.3, -renderSize * 1.3);
+        ctx.lineTo(renderSize * 1.3, renderSize * 1.3);
+        ctx.lineTo(renderSize, renderSize);
+        ctx.closePath();
         ctx.fill();
-
-        // Enemy glow ring
-        ctx.strokeStyle = colors.enemy;
-        ctx.lineWidth = 2;
-        ctx.shadowBlur = 15;
+        
+        ctx.fillStyle = 'rgba(180, 248, 200, 0.4)';
         ctx.beginPath();
-        ctx.arc(enemy.x, enemy.y, enemy.size + 3, 0, Math.PI * 2);
-        ctx.stroke();
+        ctx.moveTo(-renderSize, -renderSize);
+        ctx.lineTo(-renderSize * 1.3, -renderSize * 1.3);
+        ctx.lineTo(renderSize * 1.3, -renderSize * 1.3);
+        ctx.lineTo(renderSize, -renderSize);
+        ctx.closePath();
+        ctx.fill();
+        
+        ctx.restore();
     });
 
     // Draw particles
@@ -365,7 +455,42 @@ function drawGameOver() {
 // Game over
 function gameOver() {
     gameState = 'gameover';
-    createParticles(player.x, player.y, colors.ship, 30);
+    
+    // Magnificent explosion with multiple waves
+    createParticles(player.x, player.y, colors.ship, 50);
+    createParticles(player.x, player.y, colors.debris, 40);
+    createParticles(player.x, player.y, colors.tail, 30);
+    
+    // Create expanding ring particles
+    for (let i = 0; i < 30; i++) {
+        const angle = (Math.PI * 2 * i) / 30;
+        const speed = 3 + Math.random() * 4;
+        particles.push({
+            x: player.x,
+            y: player.y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            life: 60 + Math.random() * 40,
+            color: colors.ship,
+            size: 4 + Math.random() * 6,
+        });
+    }
+    
+    // Scatter all debris pieces from tail
+    player.debrisPieces.forEach(piece => {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 2 + Math.random() * 3;
+        particles.push({
+            x: piece.x,
+            y: piece.y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            life: 40 + Math.random() * 30,
+            color: colors.debris,
+            size: piece.size,
+        });
+    });
+    
     updateUI();
 }
 
