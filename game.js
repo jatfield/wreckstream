@@ -11,7 +11,7 @@ const GAME_CONFIG = {
     MAX_ENEMY_SPEED: 2.0,
     TRAIL_GROWTH_PER_ENEMY: 3,         // How much tail grows per enemy destroyed
     TRAIL_COLLISION_BUFFER: 5,         // Exclude last N trail points from collision (prevents instant hits near ship)
-    TRAIL_COLLISION_RADIUS: 5,         // Collision detection radius for tail segments
+    TRAIL_COLLISION_RADIUS: 15,        // Collision detection radius for tail segments (more forgiving)
     DIAGONAL_MOVEMENT_FACTOR: Math.sqrt(2) / 2,  // Normalize diagonal movement
     PARTICLE_MAX_LIFE: 50,             // Maximum particle lifetime for alpha calculations
     MAX_Z_DEPTH: 100,                  // Maximum z-depth for 3D objects
@@ -53,6 +53,7 @@ const player = {
 // Game objects
 let enemies = [];
 let particles = [];
+let stars = [];
 
 // Input handling
 const keys = {};
@@ -80,6 +81,20 @@ canvas.addEventListener('mousemove', (e) => {
     mouse.x = e.clientX - rect.left;
     mouse.y = e.clientY - rect.top;
 });
+
+// Initialize stars for background
+function initStars() {
+    stars = [];
+    const numStars = 200; // Number of stars in the starfield
+    for (let i = 0; i < numStars; i++) {
+        stars.push({
+            x: Math.random() * canvas.width,
+            y: Math.random() * canvas.height,
+            z: Math.random() * 1000, // Depth from 0 to 1000
+            speed: 1 + Math.random() * 2 // Speed toward player
+        });
+    }
+}
 
 // Start/restart game
 function startGame() {
@@ -110,6 +125,7 @@ function startGame() {
     
     enemies = [];
     particles = [];
+    initStars(); // Initialize starfield background
     frameCount = 0;
     updateUI();
 }
@@ -375,6 +391,19 @@ function update() {
             particles.splice(i, 1);
         }
     }
+
+    // Update stars (move toward player as if traveling through space)
+    for (let i = 0; i < stars.length; i++) {
+        const star = stars[i];
+        star.z -= star.speed; // Move star toward player
+        
+        // Recycle star when it passes the player
+        if (star.z <= 0) {
+            star.z = 1000;
+            star.x = Math.random() * canvas.width;
+            star.y = Math.random() * canvas.height;
+        }
+    }
 }
 
 // Draw game
@@ -398,6 +427,28 @@ function draw() {
 
 // Draw game elements
 function drawGameElements() {
+    // Draw stars (moving starfield background)
+    ctx.fillStyle = '#ffffff';
+    for (let i = 0; i < stars.length; i++) {
+        const star = stars[i];
+        // Calculate perspective: closer stars (lower z) appear larger and brighter
+        const scale = 1000 / (star.z + 1); // Perspective scale
+        const screenX = (star.x - canvas.width / 2) * scale + canvas.width / 2;
+        const screenY = (star.y - canvas.height / 2) * scale + canvas.height / 2;
+        const size = Math.max(0.5, scale * 0.5); // Star size based on depth
+        const alpha = Math.min(1, scale * 0.3); // Brightness based on depth
+        
+        // Only draw stars that are on screen
+        if (screenX >= 0 && screenX <= canvas.width && screenY >= 0 && screenY <= canvas.height) {
+            ctx.globalAlpha = alpha;
+            ctx.shadowBlur = size * 2;
+            ctx.shadowColor = '#ffffff';
+            ctx.fillRect(screenX - size / 2, screenY - size / 2, size, size);
+        }
+    }
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur = 0;
+
     // Draw debris pieces (tail made of separate pieces)
     player.debrisPieces.forEach((piece, i) => {
         const alpha = Math.min(1, i / (player.debrisPieces.length * 0.3));
@@ -618,5 +669,6 @@ function gameLoop() {
 }
 
 // Initialize
+initStars(); // Initialize starfield background
 updateUI();
 gameLoop();
