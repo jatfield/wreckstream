@@ -17,6 +17,9 @@ const GAME_CONFIG = {
     MAX_Z_DEPTH: 100,                  // Maximum z-depth for 3D objects
     PERSPECTIVE_SCALE_FACTOR: 200,     // Denominator for perspective scaling (MAX_Z_DEPTH * 2)
     MIN_MOVEMENT_SPEED: 0.5,           // Minimum speed to be considered moving
+    MAX_STAR_DEPTH: 1000,              // Maximum z-depth for stars in starfield
+    STAR_SIZE_SCALE: 0.5,              // Scale factor for star size based on depth
+    STAR_ALPHA_SCALE: 0.3,             // Scale factor for star brightness based on depth
 };
 
 // Game state
@@ -90,7 +93,7 @@ function initStars() {
         stars.push({
             x: Math.random() * canvas.width,
             y: Math.random() * canvas.height,
-            z: Math.random() * 1000, // Depth from 0 to 1000
+            z: Math.random() * GAME_CONFIG.MAX_STAR_DEPTH, // Depth from 0 to MAX_STAR_DEPTH
             speed: 1 + Math.random() * 2 // Speed toward player
         });
     }
@@ -399,7 +402,7 @@ function update() {
         
         // Recycle star when it passes the player
         if (star.z <= 0) {
-            star.z = 1000;
+            star.z = GAME_CONFIG.MAX_STAR_DEPTH;
             star.x = Math.random() * canvas.width;
             star.y = Math.random() * canvas.height;
         }
@@ -432,11 +435,11 @@ function drawGameElements() {
     for (let i = 0; i < stars.length; i++) {
         const star = stars[i];
         // Calculate perspective: closer stars (lower z) appear larger and brighter
-        const scale = 1000 / (star.z + 1); // Perspective scale
+        const scale = GAME_CONFIG.MAX_STAR_DEPTH / (star.z + 1); // Perspective scale
         const screenX = (star.x - canvas.width / 2) * scale + canvas.width / 2;
         const screenY = (star.y - canvas.height / 2) * scale + canvas.height / 2;
-        const size = Math.max(0.5, scale * 0.5); // Star size based on depth
-        const alpha = Math.min(1, scale * 0.3); // Brightness based on depth
+        const size = Math.max(0.5, scale * GAME_CONFIG.STAR_SIZE_SCALE); // Star size based on depth
+        const alpha = Math.min(1, scale * GAME_CONFIG.STAR_ALPHA_SCALE); // Brightness based on depth
         
         // Only draw stars that are on screen
         if (screenX >= 0 && screenX <= canvas.width && screenY >= 0 && screenY <= canvas.height) {
