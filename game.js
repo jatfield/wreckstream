@@ -11,6 +11,9 @@ const GAME_CONFIG = {
     MAX_ENEMY_SPEED: 2.0,
     TRAIL_GROWTH_PER_ENEMY: 3,         // How much tail grows per enemy destroyed
     TRAIL_COLLISION_BUFFER: 5,         // Exclude last N trail points from collision (prevents instant hits near ship)
+    TRAIL_COLLISION_RADIUS: 5,         // Collision detection radius for tail segments
+    DIAGONAL_MOVEMENT_FACTOR: Math.sqrt(2) / 2,  // Normalize diagonal movement
+    PARTICLE_MAX_LIFE: 50,             // Maximum particle lifetime for alpha calculations
 };
 
 // Game state
@@ -143,9 +146,8 @@ function update() {
 
     // Apply diagonal movement normalization
     if (player.vx !== 0 && player.vy !== 0) {
-        const factor = Math.sqrt(2) / 2;
-        player.vx *= factor;
-        player.vy *= factor;
+        player.vx *= GAME_CONFIG.DIAGONAL_MOVEMENT_FACTOR;
+        player.vy *= GAME_CONFIG.DIAGONAL_MOVEMENT_FACTOR;
     }
 
     player.x += player.vx;
@@ -168,8 +170,9 @@ function update() {
         spawnEnemy();
     }
 
-    // Update enemies
-    enemies.forEach((enemy, index) => {
+    // Update enemies (reverse loop to safely remove elements)
+    for (let i = enemies.length - 1; i >= 0; i--) {
+        const enemy = enemies[i];
         enemy.x += enemy.vx;
         enemy.y += enemy.vy;
 
@@ -180,8 +183,8 @@ function update() {
             enemy.y < -enemy.size * 2 ||
             enemy.y > canvas.height + enemy.size * 2
         ) {
-            enemies.splice(index, 1);
-            return;
+            enemies.splice(i, 1);
+            continue;
         }
 
         // Check collision with player ship (game over)
@@ -194,34 +197,36 @@ function update() {
         }
 
         // Check collision with tail (exclude recent trail points near ship)
-        for (let i = 0; i < player.trail.length - GAME_CONFIG.TRAIL_COLLISION_BUFFER; i++) {
-            const trail = player.trail[i];
+        const trailCheckLength = Math.max(0, player.trail.length - GAME_CONFIG.TRAIL_COLLISION_BUFFER);
+        for (let j = 0; j < trailCheckLength; j++) {
+            const trail = player.trail[j];
             const tdx = enemy.x - trail.x;
             const tdy = enemy.y - trail.y;
             const tdist = Math.sqrt(tdx * tdx + tdy * tdy);
-            if (tdist < enemy.size + 5) {
+            if (tdist < enemy.size + GAME_CONFIG.TRAIL_COLLISION_RADIUS) {
                 // Enemy destroyed by tail
-                enemies.splice(index, 1);
+                enemies.splice(i, 1);
                 score += Math.floor(enemy.size);
                 player.maxTrailLength += GAME_CONFIG.TRAIL_GROWTH_PER_ENEMY;
                 createParticles(enemy.x, enemy.y, colors.debris, 15);
                 updateUI();
-                return;
+                break;
             }
         }
-    });
+    }
 
-    // Update particles
-    particles.forEach((particle, index) => {
+    // Update particles (reverse loop to safely remove elements)
+    for (let i = particles.length - 1; i >= 0; i--) {
+        const particle = particles[i];
         particle.x += particle.vx;
         particle.y += particle.vy;
         particle.vx *= 0.98;
         particle.vy *= 0.98;
         particle.life--;
         if (particle.life <= 0) {
-            particles.splice(index, 1);
+            particles.splice(i, 1);
         }
-    });
+    }
 }
 
 // Draw game
@@ -304,7 +309,7 @@ function drawGameElements() {
 
     // Draw particles
     particles.forEach((particle) => {
-        const alpha = particle.life / 50;
+        const alpha = particle.life / GAME_CONFIG.PARTICLE_MAX_LIFE;
         ctx.fillStyle = particle.color;
         ctx.shadowBlur = 10;
         ctx.shadowColor = particle.color;
