@@ -14,6 +14,8 @@ const GAME_CONFIG = {
     TRAIL_COLLISION_RADIUS: 5,         // Collision detection radius for tail segments
     DIAGONAL_MOVEMENT_FACTOR: Math.sqrt(2) / 2,  // Normalize diagonal movement
     PARTICLE_MAX_LIFE: 50,             // Maximum particle lifetime for alpha calculations
+    MAX_Z_DEPTH: 100,                  // Maximum z-depth for 3D objects
+    PERSPECTIVE_SCALE_FACTOR: 200,     // Denominator for perspective scaling (MAX_Z_DEPTH * 2)
 };
 
 // Game state
@@ -112,7 +114,7 @@ function spawnEnemy() {
     let x, y, z, vx, vy;
     const speed = GAME_CONFIG.MIN_ENEMY_SPEED + Math.random() * (GAME_CONFIG.MAX_ENEMY_SPEED - GAME_CONFIG.MIN_ENEMY_SPEED);
     const size = 8 + Math.random() * 12;
-    z = Math.random() * 100; // Random depth for 3D effect
+    z = Math.random() * GAME_CONFIG.MAX_Z_DEPTH; // Random depth for 3D effect
 
     switch (edge) {
         case 0: // top
@@ -191,7 +193,8 @@ function update() {
     player.y = Math.max(player.size, Math.min(canvas.height - player.size, player.y));
 
     // Update trail and visible tail length based on speed
-    const speedFactor = actualSpeed / player.speed; // 0 to 1
+    // speedFactor is in range [0, 1] because actualSpeed is clamped to player.speed above
+    const speedFactor = actualSpeed / player.speed;
     const visibleTailLength = Math.floor(player.maxTrailLength * speedFactor);
     
     if (player.vx !== 0 || player.vy !== 0 || player.trail.length === 0) {
@@ -231,6 +234,7 @@ function update() {
     }
     
     // Remove excess or dead debris pieces
+    // Pieces are removed if: lifetime expired, beyond visible tail length, or exceeds max capacity
     for (let i = player.debrisPieces.length - 1; i >= 0; i--) {
         const piece = player.debrisPieces[i];
         if (piece.life <= 0 || i >= visibleTailLength || player.debrisPieces.length > player.maxTrailLength) {
@@ -348,7 +352,7 @@ function drawGameElements() {
     // Draw debris pieces (tail made of separate pieces)
     player.debrisPieces.forEach((piece, i) => {
         const alpha = Math.min(1, i / (player.debrisPieces.length * 0.3));
-        const scale = 1 + (piece.z / 200); // 3D perspective scaling
+        const scale = 1 + (piece.z / GAME_CONFIG.PERSPECTIVE_SCALE_FACTOR); // 3D perspective scaling
         const renderSize = piece.size * scale;
         
         ctx.save();
@@ -402,7 +406,7 @@ function drawGameElements() {
 
     // Draw enemies as 3D cubes
     enemies.forEach((enemy) => {
-        const scale = 1 + (enemy.z / 200); // Perspective scaling based on z
+        const scale = 1 + (enemy.z / GAME_CONFIG.PERSPECTIVE_SCALE_FACTOR); // Perspective scaling based on z
         const renderSize = enemy.size * scale;
         
         ctx.save();
