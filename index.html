@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wreckstream - Neon Space Arcade</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: linear-gradient(135deg, #0a0a1a 0%, #1a0a2a 100%);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: 'Courier New', monospace;
+            color: #ff6ec7;
+        }
+
+        h1 {
+            font-size: 3em;
+            margin-bottom: 20px;
+            text-shadow: 0 0 20px #ff6ec7, 0 0 40px #ff6ec7;
+            animation: glow 2s ease-in-out infinite alternate;
+        }
+
+        @keyframes glow {
+            from { text-shadow: 0 0 20px #ff6ec7, 0 0 40px #ff6ec7; }
+            to { text-shadow: 0 0 30px #ff6ec7, 0 0 60px #ff6ec7, 0 0 80px #ff6ec7; }
+        }
+
+        #gameCanvas {
+            border: 3px solid #ff6ec7;
+            box-shadow: 0 0 30px #ff6ec7, inset 0 0 30px rgba(255, 110, 199, 0.1);
+            background: #0a0a1a;
+            cursor: crosshair;
+        }
+
+        #gameInfo {
+            display: flex;
+            justify-content: space-between;
+            width: 800px;
+            margin-top: 20px;
+            font-size: 1.2em;
+        }
+
+        #gameInfo div {
+            text-shadow: 0 0 10px #ff6ec7;
+        }
+
+        #instructions {
+            margin-top: 20px;
+            text-align: center;
+            max-width: 800px;
+            line-height: 1.6;
+            color: #a0d8f1;
+            text-shadow: 0 0 10px #a0d8f1;
+        }
+
+        .highlight {
+            color: #ffed4e;
+            text-shadow: 0 0 10px #ffed4e;
+        }
+    </style>
+</head>
+<body>
+    <h1>WRECKSTREAM</h1>
+    <canvas id="gameCanvas" width="800" height="600"></canvas>
+    <div id="gameInfo">
+        <div>Score: <span id="score">0</span></div>
+        <div>Tail Length: <span id="tailLength">0</span></div>
+        <div>Status: <span id="status">Press SPACE to Start</span></div>
+    </div>
+    <div id="instructions">
+        Use <span class="highlight">ARROW KEYS</span> or <span class="highlight">WASD</span> to move your ship.<br>
+        Avoid objects flying from the edges! Catch them in your <span class="highlight">debris tail</span> to destroy them and grow longer.<br>
+        Press <span class="highlight">SPACE</span> to start/restart.
+    </div>
+    <script src="game.js"></script>
+</body>
+</html>
