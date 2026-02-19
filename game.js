@@ -16,12 +16,15 @@ const GAME_CONFIG = {
     PARTICLE_MAX_LIFE: 50,             // Maximum particle lifetime for alpha calculations
     MAX_Z_DEPTH: 100,                  // Maximum z-depth for 3D objects
     PERSPECTIVE_SCALE_FACTOR: 200,     // Denominator for perspective scaling (MAX_Z_DEPTH * 2)
+    MIN_MOVEMENT_SPEED: 0.5,           // Minimum speed to be considered moving
 };
 
 // Game state
 let gameState = 'menu'; // menu, playing, gameover
 let score = 0;
 let frameCount = 0;
+let gameOverDelay = 0; // Delay before showing game over screen
+const GAME_OVER_SCREEN_DELAY = 60; // Show screen after 1 second (60 frames)
 
 // Neon pastel colors
 const colors = {
@@ -41,6 +44,7 @@ const player = {
     speed: 4,
     vx: 0,
     vy: 0,
+    angle: 0, // Ship rotation angle
     trail: [],
     maxTrailLength: 20,
     debrisPieces: [], // Separate debris pieces for tail
@@ -81,11 +85,13 @@ canvas.addEventListener('mousemove', (e) => {
 function startGame() {
     gameState = 'playing';
     score = 0;
+    gameOverDelay = 0; // Reset game over delay
     player.x = canvas.width / 2;
     player.y = canvas.height / 2;
     player.z = 0;
     player.vx = 0;
     player.vy = 0;
+    player.angle = 0;
     player.trail = [];
     player.debrisPieces = [];
     player.maxTrailLength = 20;
@@ -163,7 +169,25 @@ function createParticles(x, y, color, count = 10) {
 
 // Update game
 function update() {
-    if (gameState !== 'playing') return;
+    if (gameState !== 'playing') {
+        // Continue updating particles during game over for explosion effect
+        if (gameState === 'gameover') {
+            gameOverDelay++;
+            // Update particles even in game over state
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const particle = particles[i];
+                particle.x += particle.vx;
+                particle.y += particle.vy;
+                particle.vx *= 0.98;
+                particle.vy *= 0.98;
+                particle.life--;
+                if (particle.life <= 0) {
+                    particles.splice(i, 1);
+                }
+            }
+        }
+        return;
+    }
 
     frameCount++;
 
@@ -180,6 +204,10 @@ function update() {
         player.vx = (dx / distance) * moveSpeed;
         player.vy = (dy / distance) * moveSpeed;
         actualSpeed = Math.sqrt(player.vx * player.vx + player.vy * player.vy);
+        
+        // Update ship rotation to point in direction of movement
+        // Adjust by π/2 radians because the ship's default orientation points upward (0 radians)
+        player.angle = Math.atan2(dy, dx) + Math.PI / 2;
     } else {
         player.vx = 0;
         player.vy = 0;
@@ -205,9 +233,9 @@ function update() {
     }
     
     // Update debris pieces positions to follow trail
-    if (player.debrisPieces.length > 0 && player.trail.length > 0) {
+    if (player.trail.length > 0) {
         // Add new debris piece at player position if moving
-        if (actualSpeed > 0.5 && frameCount % 3 === 0) {
+        if (actualSpeed > GAME_CONFIG.MIN_MOVEMENT_SPEED && frameCount % 3 === 0) {
             player.debrisPieces.unshift({
                 x: player.x,
                 y: player.y,
@@ -234,10 +262,14 @@ function update() {
     }
     
     // Remove excess or dead debris pieces
-    // Pieces are removed if: lifetime expired, beyond visible tail length, or exceeds max capacity
+    // Pieces are removed if: lifetime expired, or exceeds max capacity
+    // Only remove based on visible tail length when speed is low (stopped)
     for (let i = player.debrisPieces.length - 1; i >= 0; i--) {
         const piece = player.debrisPieces[i];
-        if (piece.life <= 0 || i >= visibleTailLength || player.debrisPieces.length > player.maxTrailLength) {
+        const shouldRemove = piece.life <= 0 || 
+                           player.debrisPieces.length > player.maxTrailLength ||
+                           (actualSpeed < GAME_CONFIG.MIN_MOVEMENT_SPEED && i >= visibleTailLength);
+        if (shouldRemove) {
             player.debrisPieces.splice(i, 1);
         }
     }
@@ -288,12 +320,28 @@ function update() {
         }
         
         if (hitByTail) {
-            // Enemy destroyed by tail - break into debris pieces
+            // Enemy destroyed by tail - break into debris pieces with visual effect
             enemies.splice(i, 1);
             score += Math.floor(enemy.size);
             player.maxTrailLength += GAME_CONFIG.TRAIL_GROWTH_PER_ENEMY;
             
-            // Create debris pieces from destroyed enemy
+            // Create visual break-up particles (enemy breaking apart)
+            const breakPieces = Math.floor(enemy.size / 2) + 5;
+            for (let p = 0; p < breakPieces; p++) {
+                const angle = (Math.PI * 2 * p) / breakPieces + Math.random() * 0.5;
+                const speed = 2 + Math.random() * 3;
+                particles.push({
+                    x: enemy.x,
+                    y: enemy.y,
+                    vx: Math.cos(angle) * speed,
+                    vy: Math.sin(angle) * speed,
+                    life: 30 + Math.random() * 30,
+                    color: colors.enemy,
+                    size: 3 + Math.random() * 4,
+                });
+            }
+            
+            // Create debris pieces from destroyed enemy (added to tail)
             const numPieces = Math.floor(enemy.size / 3) + 3;
             for (let p = 0; p < numPieces; p++) {
                 const angle = (Math.PI * 2 * p) / numPieces;
@@ -309,6 +357,7 @@ function update() {
                 });
             }
             
+            // Additional explosion particles
             createParticles(enemy.x, enemy.y, colors.debris, 15);
             updateUI();
         }
@@ -393,16 +442,20 @@ function drawGameElements() {
     }
 
     // Draw player ship
+    ctx.save();
+    ctx.translate(player.x, player.y);
+    ctx.rotate(player.angle);
     ctx.fillStyle = colors.ship;
     ctx.shadowBlur = 30;
     ctx.shadowColor = colors.ship;
     ctx.beginPath();
-    ctx.moveTo(player.x, player.y - player.size);
-    ctx.lineTo(player.x - player.size * 0.7, player.y + player.size);
-    ctx.lineTo(player.x, player.y + player.size * 0.5);
-    ctx.lineTo(player.x + player.size * 0.7, player.y + player.size);
+    ctx.moveTo(0, -player.size);
+    ctx.lineTo(-player.size * 0.7, player.size);
+    ctx.lineTo(0, player.size * 0.5);
+    ctx.lineTo(player.size * 0.7, player.size);
     ctx.closePath();
     ctx.fill();
+    ctx.restore();
 
     // Draw enemies as 3D cubes
     enemies.forEach((enemy) => {
@@ -475,6 +528,11 @@ function drawMenu() {
 
 // Draw game over
 function drawGameOver() {
+    // Only show game over screen after delay to let explosion be visible
+    if (gameOverDelay < GAME_OVER_SCREEN_DELAY) {
+        return;
+    }
+    
     // Draw semi-transparent overlay
     ctx.fillStyle = 'rgba(10, 10, 26, 0.7)';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
