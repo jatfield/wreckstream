@@ -16,12 +16,15 @@ const GAME_CONFIG = {
     PARTICLE_MAX_LIFE: 50,             // Maximum particle lifetime for alpha calculations
     MAX_Z_DEPTH: 100,                  // Maximum z-depth for 3D objects
     PERSPECTIVE_SCALE_FACTOR: 200,     // Denominator for perspective scaling (MAX_Z_DEPTH * 2)
+    MIN_MOVEMENT_SPEED: 0.5,           // Minimum speed to be considered moving
 };
 
 // Game state
 let gameState = 'menu'; // menu, playing, gameover
 let score = 0;
 let frameCount = 0;
+let gameOverDelay = 0; // Delay before showing game over screen
+const GAME_OVER_SCREEN_DELAY = 60; // Show screen after 1 second (60 frames)
 
 // Neon pastel colors
 const colors = {
@@ -203,7 +206,8 @@ function update() {
         actualSpeed = Math.sqrt(player.vx * player.vx + player.vy * player.vy);
         
         // Update ship rotation to point in direction of movement
-        player.angle = Math.atan2(dy, dx) + Math.PI / 2; // +PI/2 because ship points up by default
+        // Adjust by π/2 radians because the ship's default orientation points upward (0 radians)
+        player.angle = Math.atan2(dy, dx) + Math.PI / 2;
     } else {
         player.vx = 0;
         player.vy = 0;
@@ -231,7 +235,7 @@ function update() {
     // Update debris pieces positions to follow trail
     if (player.trail.length > 0) {
         // Add new debris piece at player position if moving
-        if (actualSpeed > 0.5 && frameCount % 3 === 0) {
+        if (actualSpeed > GAME_CONFIG.MIN_MOVEMENT_SPEED && frameCount % 3 === 0) {
             player.debrisPieces.unshift({
                 x: player.x,
                 y: player.y,
@@ -264,7 +268,7 @@ function update() {
         const piece = player.debrisPieces[i];
         const shouldRemove = piece.life <= 0 || 
                            player.debrisPieces.length > player.maxTrailLength ||
-                           (actualSpeed < 0.5 && i >= visibleTailLength);
+                           (actualSpeed < GAME_CONFIG.MIN_MOVEMENT_SPEED && i >= visibleTailLength);
         if (shouldRemove) {
             player.debrisPieces.splice(i, 1);
         }
@@ -592,10 +596,6 @@ function gameOver() {
     
     updateUI();
 }
-
-// Delayed game over screen display
-let gameOverDelay = 0;
-const GAME_OVER_SCREEN_DELAY = 60; // Show screen after 1 second (60 frames)
 
 // Update UI
 function updateUI() {
