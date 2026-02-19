@@ -3,6 +3,16 @@
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
+// Game configuration constants
+const GAME_CONFIG = {
+    INITIAL_GRACE_PERIOD_FRAMES: 120,  // 2 seconds at 60fps before enemies spawn
+    ENEMY_SPAWN_INTERVAL_FRAMES: 90,   // Spawn enemy every 1.5 seconds
+    MIN_ENEMY_SPEED: 0.8,
+    MAX_ENEMY_SPEED: 2.0,
+    TRAIL_GROWTH_PER_ENEMY: 3,         // How much tail grows per enemy destroyed
+    TRAIL_COLLISION_BUFFER: 5,         // Exclude last N trail points from collision (prevents instant hits near ship)
+};
+
 // Game state
 let gameState = 'menu'; // menu, playing, gameover
 let score = 0;
@@ -68,7 +78,7 @@ function startGame() {
 function spawnEnemy() {
     const edge = Math.floor(Math.random() * 4); // 0: top, 1: right, 2: bottom, 3: left
     let x, y, vx, vy;
-    const speed = 0.8 + Math.random() * 1.2; // Slower enemies
+    const speed = GAME_CONFIG.MIN_ENEMY_SPEED + Math.random() * (GAME_CONFIG.MAX_ENEMY_SPEED - GAME_CONFIG.MIN_ENEMY_SPEED);
     const size = 8 + Math.random() * 12;
 
     switch (edge) {
@@ -153,8 +163,8 @@ function update() {
         }
     }
 
-    // Spawn enemies (slower spawn rate, and grace period)
-    if (frameCount > 120 && frameCount % 90 === 0) {
+    // Spawn enemies (grace period at start, then spawn at intervals)
+    if (frameCount > GAME_CONFIG.INITIAL_GRACE_PERIOD_FRAMES && frameCount % GAME_CONFIG.ENEMY_SPAWN_INTERVAL_FRAMES === 0) {
         spawnEnemy();
     }
 
@@ -183,8 +193,8 @@ function update() {
             return;
         }
 
-        // Check collision with tail
-        for (let i = 0; i < player.trail.length - 5; i++) {
+        // Check collision with tail (exclude recent trail points near ship)
+        for (let i = 0; i < player.trail.length - GAME_CONFIG.TRAIL_COLLISION_BUFFER; i++) {
             const trail = player.trail[i];
             const tdx = enemy.x - trail.x;
             const tdy = enemy.y - trail.y;
@@ -193,7 +203,7 @@ function update() {
                 // Enemy destroyed by tail
                 enemies.splice(index, 1);
                 score += Math.floor(enemy.size);
-                player.maxTrailLength += 3;
+                player.maxTrailLength += GAME_CONFIG.TRAIL_GROWTH_PER_ENEMY;
                 createParticles(enemy.x, enemy.y, colors.debris, 15);
                 updateUI();
                 return;
