@@ -87,6 +87,19 @@ function startGame() {
     player.trail = [];
     player.debrisPieces = [];
     player.maxTrailLength = 20;
+    
+    // Initialize with some starting debris pieces
+    for (let i = 0; i < 10; i++) {
+        player.debrisPieces.push({
+            x: player.x,
+            y: player.y,
+            z: 0,
+            size: 3 + Math.random() * 2,
+            rotation: Math.random() * Math.PI * 2,
+            life: player.maxTrailLength * 2
+        });
+    }
+    
     enemies = [];
     particles = [];
     frameCount = 0;
@@ -188,11 +201,39 @@ function update() {
         }
     }
     
-    // Update debris pieces in tail
+    // Update debris pieces positions to follow trail
+    if (player.debrisPieces.length > 0 && player.trail.length > 0) {
+        // Add new debris piece at player position if moving
+        if (actualSpeed > 0.5 && frameCount % 3 === 0) {
+            player.debrisPieces.unshift({
+                x: player.x,
+                y: player.y,
+                z: 0,
+                size: 3 + Math.random() * 2,
+                rotation: Math.random() * Math.PI * 2,
+                life: player.maxTrailLength * 2
+            });
+        }
+        
+        // Update existing debris pieces to follow trail positions
+        const spacing = Math.max(1, Math.floor(player.trail.length / Math.min(player.debrisPieces.length, player.maxTrailLength)));
+        for (let i = 0; i < player.debrisPieces.length && i * spacing < player.trail.length; i++) {
+            const trailIndex = Math.min(i * spacing, player.trail.length - 1);
+            const piece = player.debrisPieces[i];
+            if (player.trail[trailIndex]) {
+                // Smoothly move debris to trail position
+                piece.x = player.trail[trailIndex].x;
+                piece.y = player.trail[trailIndex].y;
+            }
+            piece.life--;
+            piece.rotation += 0.05;
+        }
+    }
+    
+    // Remove excess or dead debris pieces
     for (let i = player.debrisPieces.length - 1; i >= 0; i--) {
         const piece = player.debrisPieces[i];
-        piece.life--;
-        if (piece.life <= 0 || i >= visibleTailLength) {
+        if (piece.life <= 0 || i >= visibleTailLength || player.debrisPieces.length > player.maxTrailLength) {
             player.debrisPieces.splice(i, 1);
         }
     }
