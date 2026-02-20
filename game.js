@@ -123,19 +123,6 @@ function startGame() {
     player.debrisPieces = [];
     player.maxTrailLength = 20;
     
-    // Initialize with some starting debris pieces
-    for (let i = 0; i < 10; i++) {
-        player.debrisPieces.push({
-            x: player.x,
-            y: player.y,
-            z: 0,
-            size: 3 + Math.random() * 2,
-            rotation: Math.random() * Math.PI * 2,
-            sides: 3 + Math.floor(Math.random() * 4),
-            life: player.maxTrailLength * 2
-        });
-    }
-    
     enemies = [];
     particles = [];
     wreckage = [];
@@ -290,19 +277,6 @@ function update() {
     
     // Update debris pieces positions to follow trail
     if (player.trail.length > 0) {
-        // Add new debris piece at player position if moving
-        if (actualSpeed > GAME_CONFIG.MIN_MOVEMENT_SPEED && frameCount % 3 === 0) {
-            player.debrisPieces.unshift({
-                x: player.x,
-                y: player.y,
-                z: 0,
-                size: 3 + Math.random() * 2,
-                rotation: Math.random() * Math.PI * 2,
-                sides: 3 + Math.floor(Math.random() * 4),
-                life: player.maxTrailLength * 2
-            });
-        }
-        
         // Update existing debris pieces to follow trail positions
         // piece[0] is closest to ship, so it maps to the most recent trail position (trail[last])
         const spacing = Math.max(1, Math.floor(player.trail.length / Math.min(player.debrisPieces.length, player.maxTrailLength)));
