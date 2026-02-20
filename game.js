@@ -25,6 +25,11 @@ const GAME_CONFIG = {
     METEORITE_MAX_SPEED: 8.0,
     BACKGROUND_PULSE_SPEED: 0.03,         // Frequency of the pulsating background oscillation
     TAIL_GLOW_MAX_LENGTH: 80,             // Tail piece count at which background glow reaches full intensity
+    MIN_SEVER_REMAINING: 5,              // Minimum tail pieces kept attached to ship after a sever
+    SEVER_BURST_PARTICLES: 20,           // Extra burst particles spawned at the sever point
+    COLOR_BLEND_START: 180,              // Frames a picked-up piece keeps its original color
+    COLOR_BLEND_DURATION: 120,           // Frames over which a piece's color blends to the tail tint
+    TAIL_COLOR_FADE_RATE: 0.003,         // Per-frame rate tailTintColor fades back toward default tail color
 };
 
 // Background music
@@ -129,6 +134,7 @@ let score = 0;
 let frameCount = 0;
 let gameOverDelay = 0; // Delay before showing game over screen
 const GAME_OVER_SCREEN_DELAY = 60; // Show screen after 1 second (60 frames)
+let highScore = 0; // Session high score (persists between games)
 
 // Neon pastel colors
 const colors = {
@@ -151,6 +157,9 @@ const ENEMY_COLORS = [
     '#40e0d0', // Turquoise
     '#ff8c00', // Dark orange
 ];
+
+// Current tint color for new tail pieces; snaps to pickup color and fades back to tail color over time
+let tailTintColor = '#a0d8f1'; // Matches colors.tail initial value
 
 // Player ship
 const player = {
@@ -194,12 +203,35 @@ window.addEventListener('keyup', (e) => {
     keys[e.key] = false;
 });
 
-// Mouse control
-canvas.addEventListener('mousemove', (e) => {
+// Mouse control – listen on window so the mouse registers just outside the play area edge
+window.addEventListener('mousemove', (e) => {
     const rect = canvas.getBoundingClientRect();
     mouse.x = e.clientX - rect.left;
     mouse.y = e.clientY - rect.top;
 });
+
+// Color utility helpers
+function hexToRgb(hex) {
+    const h = hex.replace('#', '');
+    if (h.length !== 6) return hexToRgb(colors.ship); // fallback to ship pink
+    return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+}
+
+function lerpColor(hexFrom, hexTo, t) {
+    const [r1, g1, b1] = hexToRgb(hexFrom);
+    const [r2, g2, b2] = hexToRgb(hexTo);
+    const r = Math.round(r1 + (r2 - r1) * t);
+    const g = Math.round(g1 + (g2 - g1) * t);
+    const b = Math.round(b1 + (b2 - b1) * t);
+    return '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('');
+}
+
+// Update the canvas border and glow to reflect a new color
+function updateBorderColor(hex) {
+    const [r, g, b] = hexToRgb(hex);
+    canvas.style.borderColor = hex;
+    canvas.style.boxShadow = `0 0 30px ${hex}, inset 0 0 30px rgba(${r}, ${g}, ${b}, 0.1)`;
+}
 
 // Initialize stars for background
 function initStars() {
@@ -220,6 +252,8 @@ function startGame() {
     gameState = 'playing';
     score = 0;
     gameOverDelay = 0; // Reset game over delay
+    tailTintColor = colors.tail; // Reset tail tint
+    updateBorderColor(colors.ship); // Reset border to ship color
     player.x = canvas.width / 2;
     player.y = canvas.height / 2;
     player.z = 0;
@@ -239,7 +273,9 @@ function startGame() {
             size: 3 + Math.random() * 2,
             rotation: Math.random() * Math.PI * 2,
             sides: 3 + Math.floor(Math.random() * 4),
-            life: player.maxTrailLength * 2
+            life: player.maxTrailLength * 2,
+            color: colors.tail,
+            colorAge: 0,
         });
     }
     
@@ -333,20 +369,35 @@ function spawnMeteorite() {
 
 // Sever the tail starting from debrisPieces[index] to the end
 function severTailAt(index) {
-    const severed = player.debrisPieces.splice(index);
+    // Always keep at least MIN_SEVER_REMAINING pieces attached to the ship
+    const minKeep = player.debrisPieces.length - GAME_CONFIG.MIN_SEVER_REMAINING;
+    const safeIndex = Math.min(index, Math.max(1, minKeep));
+    if (safeIndex >= player.debrisPieces.length) return;
+
+    const severed = player.debrisPieces.splice(safeIndex);
+    if (severed.length === 0) return;
+
+    const severX = severed[0].x;
+    const severY = severed[0].y;
+
+    // Scatter every severed piece as a fast-moving particle (more dramatic speed)
     for (const piece of severed) {
         const angle = Math.random() * Math.PI * 2;
-        const speed = 2 + Math.random() * 4;
+        const speed = 3 + Math.random() * 6;
         particles.push({
             x: piece.x,
             y: piece.y,
             vx: Math.cos(angle) * speed,
             vy: Math.sin(angle) * speed,
-            life: Math.min(GAME_CONFIG.PARTICLE_MAX_LIFE, 30 + Math.random() * 20),
-            color: colors.meteorite,
-            size: piece.size,
+            life: Math.min(GAME_CONFIG.PARTICLE_MAX_LIFE, 35 + Math.random() * 20),
+            color: piece.color || colors.debris,
+            size: piece.size * 1.5,
         });
     }
+
+    // Extra dramatic burst at the exact cut point
+    createParticles(severX, severY, colors.meteorite, GAME_CONFIG.SEVER_BURST_PARTICLES);
+
     // Shrink maxTrailLength to match the now-smaller tail
     player.maxTrailLength = Math.max(20, player.maxTrailLength - severed.length);
     // Trim trail immediately so pieces don't spread across the old (longer) trail
@@ -459,7 +510,9 @@ function update() {
                 size: 3 + Math.random() * 2,
                 rotation: Math.random() * Math.PI * 2,
                 sides: 3 + Math.floor(Math.random() * 4),
-                life: player.maxTrailLength * 2
+                life: player.maxTrailLength * 2,
+                color: tailTintColor,
+                colorAge: 0,
             });
         }
         
@@ -476,6 +529,7 @@ function update() {
             }
             piece.life--;
             piece.rotation += 0.05;
+            piece.colorAge = (piece.colorAge || 0) + 1;
         }
     }
     
@@ -658,7 +712,13 @@ function update() {
                     sides: w.sides,
                     life: player.maxTrailLength * 2,
                     color: w.color,
+                    colorAge: 0,
                 });
+                // Snap tail tint and canvas border to the picked-up piece's color
+                if (w.color) {
+                    tailTintColor = w.color;
+                    updateBorderColor(w.color);
+                }
                 wreckage.splice(i, 1);
                 createParticles(w.x, w.y, w.color || colors.tail, 5);
                 updateUI();
@@ -666,6 +726,9 @@ function update() {
             }
         }
     }
+
+    // Slowly fade tailTintColor back toward the default tail color
+    tailTintColor = lerpColor(tailTintColor, colors.tail, GAME_CONFIG.TAIL_COLOR_FADE_RATE);
 
     // Update particles (reverse loop to safely remove elements)
     for (let i = particles.length - 1; i >= 0; i--) {
@@ -750,7 +813,12 @@ function drawGameElements() {
     ctx.shadowBlur = 12;
     for (let i = 0; i < player.debrisPieces.length; i++) {
         const piece = player.debrisPieces[i];
-        const pieceColor = piece.color || colors.debris;
+        // Blend the piece color toward tail color based on how long it has been in the tail
+        const baseColor = piece.color || tailTintColor;
+        const age = piece.colorAge || 0;
+        const blendRaw = (age - GAME_CONFIG.COLOR_BLEND_START) / GAME_CONFIG.COLOR_BLEND_DURATION;
+        const blendT = Math.max(0, Math.min(1, blendRaw));
+        const pieceColor = blendT > 0 ? lerpColor(baseColor, colors.tail, blendT) : baseColor;
         const alpha = Math.min(1, i / (player.debrisPieces.length * 0.3));
         const cos = Math.cos(piece.rotation);
         const sin = Math.sin(piece.rotation);
@@ -774,13 +842,13 @@ function drawGameElements() {
     ctx.globalAlpha = 1;
     ctx.shadowBlur = 0;
 
-    // Draw connecting line between debris pieces (subtle)
+    // Draw connecting line between debris pieces (subtle) – color follows current tail tint
     if (player.debrisPieces.length > 1) {
-        ctx.strokeStyle = colors.tail;
+        ctx.strokeStyle = tailTintColor;
         ctx.lineWidth = 2;
         ctx.lineCap = 'round';
         ctx.shadowBlur = 10;
-        ctx.shadowColor = colors.tail;
+        ctx.shadowColor = tailTintColor;
         ctx.globalAlpha = 0.3;
         
         ctx.beginPath();
@@ -962,10 +1030,17 @@ function drawMenu() {
     ctx.textAlign = 'center';
     ctx.fillText('WRECKSTREAM', canvas.width / 2, canvas.height / 2 - 50);
 
+    if (highScore > 0) {
+        ctx.fillStyle = colors.enemy;
+        ctx.shadowColor = colors.enemy;
+        ctx.font = '22px Courier New';
+        ctx.fillText(`Best: ${highScore}`, canvas.width / 2, canvas.height / 2 + 10);
+    }
+
     ctx.fillStyle = colors.tail;
     ctx.shadowColor = colors.tail;
     ctx.font = '24px Courier New';
-    ctx.fillText('Press SPACE to Start', canvas.width / 2, canvas.height / 2 + 50);
+    ctx.fillText('Press SPACE to Start', canvas.width / 2, canvas.height / 2 + (highScore > 0 ? 55 : 50));
 }
 
 // Draw game over
@@ -984,22 +1059,28 @@ function drawGameOver() {
     ctx.shadowColor = colors.ship;
     ctx.font = '48px Courier New';
     ctx.textAlign = 'center';
-    ctx.fillText('GAME OVER', canvas.width / 2, canvas.height / 2 - 50);
+    ctx.fillText('GAME OVER', canvas.width / 2, canvas.height / 2 - 60);
 
     ctx.fillStyle = colors.debris;
     ctx.shadowColor = colors.debris;
     ctx.font = '32px Courier New';
-    ctx.fillText(`Score: ${score}`, canvas.width / 2, canvas.height / 2 + 20);
+    ctx.fillText(`Score: ${score}`, canvas.width / 2, canvas.height / 2 + 10);
+
+    ctx.fillStyle = colors.enemy;
+    ctx.shadowColor = colors.enemy;
+    ctx.font = '24px Courier New';
+    ctx.fillText(`Best: ${highScore}`, canvas.width / 2, canvas.height / 2 + 50);
 
     ctx.fillStyle = colors.tail;
     ctx.shadowColor = colors.tail;
     ctx.font = '20px Courier New';
-    ctx.fillText('Press SPACE to Restart', canvas.width / 2, canvas.height / 2 + 80);
+    ctx.fillText('Press SPACE to Restart', canvas.width / 2, canvas.height / 2 + 90);
 }
 
 // Game over
 function gameOver() {
     gameState = 'gameover';
+    if (score > highScore) highScore = score; // Update session high score
     bgMusic.pause();
     playExplosionSound();
     
@@ -1044,6 +1125,7 @@ function gameOver() {
 // Update UI
 function updateUI() {
     document.getElementById('score').textContent = score;
+    document.getElementById('highScore').textContent = highScore;
     document.getElementById('tailLength').textContent = player.maxTrailLength;
     
     let status = '';
