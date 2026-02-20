@@ -41,29 +41,56 @@ function getAudioContext() {
     return audioCtx;
 }
 
-// Synthesise a short ship-explosion boom
+// Synthesise a magnificent ship-destruction death sound (layered boom + crackle)
 function playExplosionSound() {
     try {
         const ac = getAudioContext();
-        const bufferSize = Math.floor(ac.sampleRate * 0.6);
-        const buffer = ac.createBuffer(1, bufferSize, ac.sampleRate);
-        const data = buffer.getChannelData(0);
-        for (let i = 0; i < bufferSize; i++) {
-            data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufferSize, 1.5);
+        const duration = 1.5;
+        const sr = ac.sampleRate;
+
+        // Layer 1: deep bass boom
+        const bufSize = Math.floor(sr * duration);
+        const buf = ac.createBuffer(1, bufSize, sr);
+        const data = buf.getChannelData(0);
+        for (let i = 0; i < bufSize; i++) {
+            const t = i / bufSize;
+            const env = Math.pow(1 - t, 0.7);
+            data[i] = ((Math.random() * 2 - 1) * env)
+                    + (Math.sin(i * 0.018) * 0.4 * env);   // sub-bass rumble
         }
-        const source = ac.createBufferSource();
-        source.buffer = buffer;
+        const src = ac.createBufferSource();
+        src.buffer = buf;
+        const lp = ac.createBiquadFilter();
+        lp.type = 'lowpass';
+        lp.frequency.setValueAtTime(400, ac.currentTime);
+        lp.frequency.exponentialRampToValueAtTime(50, ac.currentTime + duration);
         const gain = ac.createGain();
-        gain.gain.setValueAtTime(1.2, ac.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.6);
-        const filter = ac.createBiquadFilter();
-        filter.type = 'lowpass';
-        filter.frequency.setValueAtTime(600, ac.currentTime);
-        filter.frequency.exponentialRampToValueAtTime(80, ac.currentTime + 0.6);
-        source.connect(filter);
-        filter.connect(gain);
+        gain.gain.setValueAtTime(2.5, ac.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + duration);
+        src.connect(lp);
+        lp.connect(gain);
         gain.connect(ac.destination);
-        source.start();
+        src.start();
+
+        // Layer 2: high-frequency crackle burst
+        const crackSize = Math.floor(sr * 0.5);
+        const crackBuf = ac.createBuffer(1, crackSize, sr);
+        const crackData = crackBuf.getChannelData(0);
+        for (let i = 0; i < crackSize; i++) {
+            crackData[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / crackSize, 0.5);
+        }
+        const src2 = ac.createBufferSource();
+        src2.buffer = crackBuf;
+        const hp = ac.createBiquadFilter();
+        hp.type = 'highpass';
+        hp.frequency.setValueAtTime(2500, ac.currentTime);
+        const gain2 = ac.createGain();
+        gain2.gain.setValueAtTime(1.8, ac.currentTime);
+        gain2.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.5);
+        src2.connect(hp);
+        hp.connect(gain2);
+        gain2.connect(ac.destination);
+        src2.start();
     } catch (e) {
         console.warn('Explosion sound failed:', e);
     }
@@ -112,6 +139,18 @@ const colors = {
     particle: '#ffa8e2',  // Light pink
     meteorite: '#ff3333', // Bright red
 };
+
+// Palette of neon colors for enemies (and wreckage/tail they generate)
+const ENEMY_COLORS = [
+    '#b4f8c8', // Mint green
+    '#ffa07a', // Light salmon
+    '#87ceeb', // Sky blue
+    '#dda0dd', // Plum
+    '#f0e68c', // Khaki yellow
+    '#ff69b4', // Hot pink
+    '#40e0d0', // Turquoise
+    '#ff8c00', // Dark orange
+];
 
 // Player ship
 const player = {
@@ -250,7 +289,7 @@ function spawnEnemy() {
             break;
     }
 
-    enemies.push({ x, y, z, vx, vy, size, rotation: Math.random() * Math.PI * 2 });
+    enemies.push({ x, y, z, vx, vy, size, rotation: Math.random() * Math.PI * 2, color: ENEMY_COLORS[Math.floor(Math.random() * ENEMY_COLORS.length)] });
 }
 
 // Create particles
@@ -310,6 +349,10 @@ function severTailAt(index) {
     }
     // Shrink maxTrailLength to match the now-smaller tail
     player.maxTrailLength = Math.max(20, player.maxTrailLength - severed.length);
+    // Trim trail immediately so pieces don't spread across the old (longer) trail
+    while (player.trail.length > player.maxTrailLength) {
+        player.trail.shift();
+    }
     playSeverSound();
     updateUI();
 }
@@ -389,9 +432,14 @@ function update() {
     player.x += player.vx;
     player.y += player.vy;
 
-    // Keep player in bounds
-    player.x = Math.max(player.size, Math.min(canvas.width - player.size, player.x));
-    player.y = Math.max(player.size, Math.min(canvas.height - player.size, player.y));
+    // Teleport player to opposite edge instead of clamping
+    let teleported = false;
+    if (player.x < 0) { player.x += canvas.width; teleported = true; }
+    else if (player.x > canvas.width) { player.x -= canvas.width; teleported = true; }
+    if (player.y < 0) { player.y += canvas.height; teleported = true; }
+    else if (player.y > canvas.height) { player.y -= canvas.height; teleported = true; }
+    // Clear trail on teleport to avoid a visual line across the canvas
+    if (teleported) { player.trail = []; }
 
     if (player.vx !== 0 || player.vy !== 0 || player.trail.length === 0) {
         player.trail.push({ x: player.x, y: player.y });
@@ -504,7 +552,7 @@ function update() {
                     vx: Math.cos(angle) * speed,
                     vy: Math.sin(angle) * speed,
                     life: Math.min(GAME_CONFIG.PARTICLE_MAX_LIFE, 40 + Math.random() * 10),
-                    color: colors.enemy,
+                    color: enemy.color,
                     size: 3 + Math.random() * 4,
                 });
             }
@@ -524,11 +572,12 @@ function update() {
                     rotationSpeed: (Math.random() - 0.5) * 0.08,
                     sides: 3 + Math.floor(Math.random() * 4),
                     friction: 0.97,
+                    color: enemy.color,
                 });
             }
             
             // Additional explosion particles
-            createParticles(enemy.x, enemy.y, colors.debris, 15);
+            createParticles(enemy.x, enemy.y, enemy.color, 15);
             updateUI();
         }
     }
@@ -608,9 +657,10 @@ function update() {
                     rotation: w.rotation,
                     sides: w.sides,
                     life: player.maxTrailLength * 2,
+                    color: w.color,
                 });
                 wreckage.splice(i, 1);
-                createParticles(w.x, w.y, colors.tail, 5);
+                createParticles(w.x, w.y, w.color || colors.tail, 5);
                 updateUI();
                 break;
             }
@@ -697,20 +747,20 @@ function drawGameElements() {
     ctx.shadowBlur = 0;
 
     // Draw debris pieces (tail made of polygon shapes)
-    // shadowBlur and shadowColor set once outside the loop to avoid per-piece GPU state changes
     ctx.shadowBlur = 12;
-    ctx.shadowColor = colors.debris;
     for (let i = 0; i < player.debrisPieces.length; i++) {
         const piece = player.debrisPieces[i];
+        const pieceColor = piece.color || colors.debris;
         const alpha = Math.min(1, i / (player.debrisPieces.length * 0.3));
         const cos = Math.cos(piece.rotation);
         const sin = Math.sin(piece.rotation);
 
         ctx.globalAlpha = alpha;
+        ctx.shadowColor = pieceColor;
         // setTransform avoids save/restore overhead: translate to piece position then rotate
         ctx.setTransform(cos, sin, -sin, cos, piece.x, piece.y);
 
-        ctx.fillStyle = colors.debris;
+        ctx.fillStyle = pieceColor;
         drawPolygon(ctx, piece.size, piece.sides || 4);
         ctx.fill();
 
@@ -744,12 +794,13 @@ function drawGameElements() {
 
     // Draw wreckage pieces (on-field debris waiting to be picked up by the tail)
     wreckage.forEach((w) => {
+        const wColor = w.color || colors.enemy;
         ctx.save();
         ctx.translate(w.x, w.y);
         ctx.rotate(w.rotation);
-        ctx.fillStyle = colors.enemy;
+        ctx.fillStyle = wColor;
         ctx.shadowBlur = 18;
-        ctx.shadowColor = colors.enemy;
+        ctx.shadowColor = wColor;
         ctx.globalAlpha = 0.9;
         drawPolygon(ctx, w.size, w.sides);
         ctx.fill();
@@ -815,20 +866,22 @@ function drawGameElements() {
     enemies.forEach((enemy) => {
         const scale = 1 + (enemy.z / GAME_CONFIG.PERSPECTIVE_SCALE_FACTOR); // Perspective scaling based on z
         const renderSize = enemy.size * scale;
+        const eColor = enemy.color || colors.enemy;
         
         ctx.save();
         ctx.translate(enemy.x, enemy.y);
         ctx.rotate(enemy.rotation);
         
-        ctx.fillStyle = colors.enemy;
+        ctx.fillStyle = eColor;
         ctx.shadowBlur = 20 * scale;
-        ctx.shadowColor = colors.enemy;
+        ctx.shadowColor = eColor;
         
         // Draw main face
         ctx.fillRect(-renderSize, -renderSize, renderSize * 2, renderSize * 2);
         
         // Draw side faces for 3D effect
-        ctx.fillStyle = 'rgba(180, 248, 200, 0.6)';
+        ctx.fillStyle = eColor;
+        ctx.globalAlpha = 0.6;
         ctx.beginPath();
         ctx.moveTo(renderSize, -renderSize);
         ctx.lineTo(renderSize * 1.3, -renderSize * 1.3);
@@ -837,7 +890,7 @@ function drawGameElements() {
         ctx.closePath();
         ctx.fill();
         
-        ctx.fillStyle = 'rgba(180, 248, 200, 0.4)';
+        ctx.globalAlpha = 0.4;
         ctx.beginPath();
         ctx.moveTo(-renderSize, -renderSize);
         ctx.lineTo(-renderSize * 1.3, -renderSize * 1.3);
@@ -846,6 +899,7 @@ function drawGameElements() {
         ctx.closePath();
         ctx.fill();
         
+        ctx.globalAlpha = 1;
         ctx.restore();
     });
 
