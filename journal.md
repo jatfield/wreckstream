@@ -66,6 +66,8 @@ Maybe pulsating background?
 
 7. "Introduce a fast moving red meteorite that can sever the tail. The part that's cut off disappears with some visual effects. The game slows down as the tail grows. See if you can optimize it. A sound effect for the explosion of the ship would also be nice. Run through the journal and see if you get some ideas that need implementing."
 
+### Seventh version:
+
 - Meteorite's work great, but doesn't make the tail shorter.
 - The sound effect is underwhelming.
 - New *powerup* idea: magnets that attract the debris to the tail, making it easier to grow.
@@ -73,3 +75,13 @@ Maybe pulsating background?
 - Above 200 tail length it slows down on some machines, needs more optimization.
 - The edges should be teleports.
 - *Idea* for later: drawing signs activate powerups.
+
+8. "The meteorite doesn't sever the tail. The length displayed decreases, but it should end where the meteorite passes. The death sound should be at least as magnificient as the explosion. The edges should be teleports, allowing the player to leave appearing on the opposite end. Add more colors to the enemies and have the tail represent the colors picked up."
+
+### Eighth version:
+
+- Severing works better, but not perfect.
+- Wraparound is good, but the mouse exits the playable area. There should be an edge around the play area that still registers mouse movement, but doesn't let the cursor leave the screen.
+- The colors picked up blend in after a while, maybe the tail should have segments that keep their color until they disappear.
+- The edge color could represent the color of the piece picked up (*idea* later the next enemy appearing)
+- High score should be kept - in memory for now
