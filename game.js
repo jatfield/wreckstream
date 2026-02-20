@@ -9,7 +9,7 @@ const GAME_CONFIG = {
     ENEMY_SPAWN_INTERVAL_FRAMES: 90,   // Spawn enemy every 1.5 seconds
     MIN_ENEMY_SPEED: 0.8,
     MAX_ENEMY_SPEED: 2.0,
-    TRAIL_GROWTH_PER_ENEMY: 3,         // How much tail grows per enemy destroyed
+    WRECKAGE_PICKUP_RADIUS: 8,         // Extra pickup radius for wreckage collection
     TRAIL_COLLISION_BUFFER: 5,         // Exclude last N trail points from collision (prevents instant hits near ship)
     TRAIL_COLLISION_RADIUS: 15,        // Collision detection radius for tail segments (more forgiving)
     DIAGONAL_MOVEMENT_FACTOR: Math.sqrt(2) / 2,  // Normalize diagonal movement
@@ -56,6 +56,7 @@ const player = {
 // Game objects
 let enemies = [];
 let particles = [];
+let wreckage = [];  // Enemy debris waiting on the field to be picked up
 let stars = [];
 
 // Input handling
@@ -122,12 +123,14 @@ function startGame() {
             z: 0,
             size: 3 + Math.random() * 2,
             rotation: Math.random() * Math.PI * 2,
+            sides: 3 + Math.floor(Math.random() * 4),
             life: player.maxTrailLength * 2
         });
     }
     
     enemies = [];
     particles = [];
+    wreckage = [];
     initStars(); // Initialize starfield background
     frameCount = 0;
     updateUI();
@@ -184,6 +187,19 @@ function createParticles(x, y, color, count = 10) {
             size: 2 + Math.random() * 3,
         });
     }
+}
+
+// Draw a regular polygon centered at origin (call inside ctx.save/translate/rotate)
+function drawPolygon(ctx, radius, sides) {
+    ctx.beginPath();
+    for (let i = 0; i < sides; i++) {
+        const angle = (i / sides) * Math.PI * 2 - Math.PI / 2;
+        const px = Math.cos(angle) * radius;
+        const py = Math.sin(angle) * radius;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
 }
 
 // Update game
@@ -274,6 +290,7 @@ function update() {
                 z: 0,
                 size: 3 + Math.random() * 2,
                 rotation: Math.random() * Math.PI * 2,
+                sides: 3 + Math.floor(Math.random() * 4),
                 life: player.maxTrailLength * 2
             });
         }
@@ -352,10 +369,9 @@ function update() {
         }
         
         if (hitByTail) {
-            // Enemy destroyed by tail - break into debris pieces with visual effect
+            // Enemy destroyed by tail - break into wreckage that stays on the field
             enemies.splice(i, 1);
             score += Math.floor(enemy.size);
-            player.maxTrailLength += GAME_CONFIG.TRAIL_GROWTH_PER_ENEMY;
             
             // Create visual break-up particles (enemy breaking apart)
             const breakPieces = Math.floor(enemy.size / 2) + 5;
@@ -373,25 +389,68 @@ function update() {
                 });
             }
             
-            // Create debris pieces from destroyed enemy (added to tail)
+            // Spawn wreckage pieces on the field (player must sweep tail over them to pick up)
             const numPieces = Math.floor(enemy.size / 3) + 3;
             for (let p = 0; p < numPieces; p++) {
-                const angle = (Math.PI * 2 * p) / numPieces;
-                const offsetX = Math.cos(angle) * enemy.size * 0.3;
-                const offsetY = Math.sin(angle) * enemy.size * 0.3;
-                player.debrisPieces.push({
-                    x: enemy.x + offsetX,
-                    y: enemy.y + offsetY,
-                    z: enemy.z,
-                    size: 3 + Math.random() * 3,
+                const angle = (Math.PI * 2 * p) / numPieces + Math.random() * 0.4;
+                const speed = 1.5 + Math.random() * 2.5;
+                wreckage.push({
+                    x: enemy.x + Math.cos(angle) * enemy.size * 0.3,
+                    y: enemy.y + Math.sin(angle) * enemy.size * 0.3,
+                    vx: Math.cos(angle) * speed,
+                    vy: Math.sin(angle) * speed,
+                    size: 3 + Math.random() * (enemy.size / 3),
                     rotation: Math.random() * Math.PI * 2,
-                    life: player.maxTrailLength * 2
+                    rotationSpeed: (Math.random() - 0.5) * 0.08,
+                    sides: 3 + Math.floor(Math.random() * 4),
+                    friction: 0.97,
                 });
             }
             
             // Additional explosion particles
             createParticles(enemy.x, enemy.y, colors.debris, 15);
             updateUI();
+        }
+    }
+
+    // Update wreckage (stays on field until picked up by tail)
+    for (let i = wreckage.length - 1; i >= 0; i--) {
+        const w = wreckage[i];
+        w.x += w.vx;
+        w.y += w.vy;
+        w.vx *= w.friction;
+        w.vy *= w.friction;
+        w.rotation += w.rotationSpeed;
+
+        // Keep wreckage within the playing field
+        if (w.x < w.size) { w.x = w.size; w.vx *= -0.5; }
+        if (w.x > canvas.width - w.size) { w.x = canvas.width - w.size; w.vx *= -0.5; }
+        if (w.y < w.size) { w.y = w.size; w.vy *= -0.5; }
+        if (w.y > canvas.height - w.size) { w.y = canvas.height - w.size; w.vy *= -0.5; }
+
+        // Check if picked up by any tail piece
+        for (let j = 0; j < player.debrisPieces.length; j++) {
+            const piece = player.debrisPieces[j];
+            const pdx = w.x - piece.x;
+            const pdy = w.y - piece.y;
+            if (Math.sqrt(pdx * pdx + pdy * pdy) < piece.size + w.size + GAME_CONFIG.WRECKAGE_PICKUP_RADIUS) {
+                // Pick up wreckage: add to tail, grow maxTrailLength proportional to debris size
+                // Divide by 2 so small pieces (~size 3) add 1-2 length, large pieces (~size 6) add 3
+                player.maxTrailLength += Math.max(1, Math.ceil(w.size / 2));
+                player.debrisPieces.push({
+                    x: w.x,
+                    y: w.y,
+                    z: 0,
+                    size: w.size,
+                    rotation: w.rotation,
+                    sides: w.sides,
+                    life: player.maxTrailLength * 2,
+                });
+                wreckage.splice(i, 1);
+                createParticles(w.x, w.y, colors.tail, 5);
+                updateUI();
+                break;
+            }
         }
     }
 
@@ -465,7 +524,7 @@ function drawGameElements() {
     ctx.globalAlpha = 1;
     ctx.shadowBlur = 0;
 
-    // Draw debris pieces (tail made of separate pieces)
+    // Draw debris pieces (tail made of polygon shapes)
     player.debrisPieces.forEach((piece, i) => {
         const alpha = Math.min(1, i / (player.debrisPieces.length * 0.3));
         const scale = 1 + (piece.z / GAME_CONFIG.PERSPECTIVE_SCALE_FACTOR); // 3D perspective scaling
@@ -479,12 +538,14 @@ function drawGameElements() {
         ctx.shadowColor = colors.debris;
         ctx.globalAlpha = alpha;
         
-        // Draw as a cube-like shape (3D object on 2D plane)
-        ctx.fillRect(-renderSize, -renderSize, renderSize * 2, renderSize * 2);
+        // Draw as a polygon shape
+        drawPolygon(ctx, renderSize, piece.sides || 4);
+        ctx.fill();
         
-        // Add highlight for 3D effect
+        // Add highlight for depth effect
         ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
-        ctx.fillRect(-renderSize, -renderSize, renderSize, renderSize);
+        drawPolygon(ctx, renderSize * 0.5, piece.sides || 4);
+        ctx.fill();
         
         ctx.globalAlpha = 1;
         ctx.restore();
@@ -508,20 +569,73 @@ function drawGameElements() {
         ctx.globalAlpha = 1;
     }
 
-    // Draw player ship
+    // Draw wreckage pieces (on-field debris waiting to be picked up by the tail)
+    wreckage.forEach((w) => {
+        ctx.save();
+        ctx.translate(w.x, w.y);
+        ctx.rotate(w.rotation);
+        ctx.fillStyle = colors.enemy;
+        ctx.shadowBlur = 18;
+        ctx.shadowColor = colors.enemy;
+        ctx.globalAlpha = 0.9;
+        drawPolygon(ctx, w.size, w.sides);
+        ctx.fill();
+        // Pulsing outline to indicate it's collectible
+        ctx.strokeStyle = colors.tail;
+        ctx.lineWidth = 1.5;
+        ctx.globalAlpha = 0.5;
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+        ctx.restore();
+    });
+
+    // Draw player ship (tilted toward screen with 3D depth effect)
     ctx.save();
     ctx.translate(player.x, player.y);
     ctx.rotate(player.angle);
+
+    const s = player.size;
+    // Ship underside/depth layer (darker, slightly offset to simulate nose tilting toward viewer)
+    ctx.fillStyle = 'rgba(150, 30, 90, 0.9)';
+    ctx.shadowBlur = 0;
+    ctx.beginPath();
+    ctx.moveTo(s * 0.1, -s * 0.85);      // nose depth offset
+    ctx.lineTo(-s * 0.65, s * 1.1);      // left wing tip (extended depth)
+    ctx.lineTo(s * 0.1, s * 0.6);        // center back (offset)
+    ctx.lineTo(s * 0.65, s * 1.1);       // right wing tip (extended depth)
+    ctx.closePath();
+    ctx.fill();
+
+    // Main hull top surface (bright, overlaid on depth layer)
     ctx.fillStyle = colors.ship;
     ctx.shadowBlur = 30;
     ctx.shadowColor = colors.ship;
     ctx.beginPath();
-    ctx.moveTo(0, -player.size);
-    ctx.lineTo(-player.size * 0.7, player.size);
-    ctx.lineTo(0, player.size * 0.5);
-    ctx.lineTo(player.size * 0.7, player.size);
+    ctx.moveTo(0, -s);                   // nose tip (closest to viewer)
+    ctx.lineTo(-s * 0.7, s * 0.8);      // left wing
+    ctx.lineTo(0, s * 0.4);             // center notch
+    ctx.lineTo(s * 0.7, s * 0.8);       // right wing
     ctx.closePath();
     ctx.fill();
+
+    // Nose highlight (tip of ship closest to viewer)
+    ctx.fillStyle = 'rgba(255, 210, 240, 0.9)';
+    ctx.shadowBlur = 0;
+    ctx.beginPath();
+    ctx.arc(0, -s * 0.85, s * 0.15, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Engine glow (back of ship, farther from viewer)
+    ctx.fillStyle = 'rgba(130, 70, 255, 0.8)';
+    ctx.shadowBlur = 10;
+    ctx.shadowColor = 'rgba(130, 70, 255, 0.9)';
+    ctx.beginPath();
+    ctx.arc(-s * 0.3, s * 0.75, s * 0.15, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(s * 0.3, s * 0.75, s * 0.15, 0, Math.PI * 2);
+    ctx.fill();
+
     ctx.restore();
 
     // Draw enemies as 3D cubes
