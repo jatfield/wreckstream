@@ -20,12 +20,81 @@ const GAME_CONFIG = {
     MAX_STAR_DEPTH: 1000,              // Maximum z-depth for stars in starfield
     STAR_SIZE_SCALE: 0.5,              // Scale factor for star size based on depth
     STAR_ALPHA_SCALE: 0.3,             // Scale factor for star brightness based on depth
+    METEORITE_SPAWN_INTERVAL_FRAMES: 300, // Spawn a meteorite every 5 seconds
+    METEORITE_MIN_SPEED: 4.5,
+    METEORITE_MAX_SPEED: 8.0,
+    BACKGROUND_PULSE_SPEED: 0.03,         // Frequency of the pulsating background oscillation
+    TAIL_GLOW_MAX_LENGTH: 80,             // Tail piece count at which background glow reaches full intensity
 };
 
 // Background music
 const bgMusic = new Audio('score.mp3');
 bgMusic.loop = true;
 bgMusic.addEventListener('error', () => console.warn('Background music failed to load.'));
+
+// Audio context for synthesised sound effects
+let audioCtx = null;
+function getAudioContext() {
+    if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    return audioCtx;
+}
+
+// Synthesise a short ship-explosion boom
+function playExplosionSound() {
+    try {
+        const ac = getAudioContext();
+        const bufferSize = Math.floor(ac.sampleRate * 0.6);
+        const buffer = ac.createBuffer(1, bufferSize, ac.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+            data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufferSize, 1.5);
+        }
+        const source = ac.createBufferSource();
+        source.buffer = buffer;
+        const gain = ac.createGain();
+        gain.gain.setValueAtTime(1.2, ac.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.6);
+        const filter = ac.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(600, ac.currentTime);
+        filter.frequency.exponentialRampToValueAtTime(80, ac.currentTime + 0.6);
+        source.connect(filter);
+        filter.connect(gain);
+        gain.connect(ac.destination);
+        source.start();
+    } catch (e) {
+        console.warn('Explosion sound failed:', e);
+    }
+}
+
+// Synthesise a short crackle for tail being severed
+function playSeverSound() {
+    try {
+        const ac = getAudioContext();
+        const bufferSize = Math.floor(ac.sampleRate * 0.25);
+        const buffer = ac.createBuffer(1, bufferSize, ac.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+            data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufferSize, 2);
+        }
+        const source = ac.createBufferSource();
+        source.buffer = buffer;
+        const gain = ac.createGain();
+        gain.gain.setValueAtTime(0.6, ac.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.25);
+        const filter = ac.createBiquadFilter();
+        filter.type = 'bandpass';
+        filter.frequency.setValueAtTime(300, ac.currentTime);
+        source.connect(filter);
+        filter.connect(gain);
+        gain.connect(ac.destination);
+        source.start();
+    } catch (e) {
+        console.warn('Sever sound failed:', e);
+    }
+}
 
 // Game state
 let gameState = 'menu'; // menu, playing, gameover
@@ -41,6 +110,7 @@ const colors = {
     debris: '#ffed4e',    // Yellow
     enemy: '#b4f8c8',     // Mint green
     particle: '#ffa8e2',  // Light pink
+    meteorite: '#ff3333', // Bright red
 };
 
 // Player ship
@@ -62,6 +132,7 @@ const player = {
 let enemies = [];
 let particles = [];
 let wreckage = [];  // Enemy debris waiting on the field to be picked up
+let meteorites = [];
 let stars = [];
 
 // Input handling
@@ -136,6 +207,7 @@ function startGame() {
     enemies = [];
     particles = [];
     wreckage = [];
+    meteorites = [];
     initStars(); // Initialize starfield background
     frameCount = 0;
     bgMusic.currentTime = 0;
@@ -194,6 +266,52 @@ function createParticles(x, y, color, count = 10) {
             size: 2 + Math.random() * 3,
         });
     }
+}
+
+// Spawn a fast-moving red meteorite from a random edge
+function spawnMeteorite() {
+    const edge = Math.floor(Math.random() * 4);
+    let x, y, vx, vy;
+    const speed = GAME_CONFIG.METEORITE_MIN_SPEED + Math.random() * (GAME_CONFIG.METEORITE_MAX_SPEED - GAME_CONFIG.METEORITE_MIN_SPEED);
+    const size = 6 + Math.random() * 8;
+
+    switch (edge) {
+        case 0: x = Math.random() * canvas.width; y = -size; vx = (Math.random() - 0.5) * 2; vy = speed; break;
+        case 1: x = canvas.width + size; y = Math.random() * canvas.height; vx = -speed; vy = (Math.random() - 0.5) * 2; break;
+        case 2: x = Math.random() * canvas.width; y = canvas.height + size; vx = (Math.random() - 0.5) * 2; vy = -speed; break;
+        case 3: x = -size; y = Math.random() * canvas.height; vx = speed; vy = (Math.random() - 0.5) * 2; break;
+    }
+
+    // Pre-compute irregular shape offsets so the rock looks the same each frame
+    const sides = 7;
+    const radiusOffsets = [];
+    for (let k = 0; k < sides; k++) {
+        radiusOffsets.push(0.6 + Math.random() * 0.4);
+    }
+
+    meteorites.push({ x, y, vx, vy, size, rotation: Math.random() * Math.PI * 2, radiusOffsets });
+}
+
+// Sever the tail starting from debrisPieces[index] to the end
+function severTailAt(index) {
+    const severed = player.debrisPieces.splice(index);
+    for (const piece of severed) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 2 + Math.random() * 4;
+        particles.push({
+            x: piece.x,
+            y: piece.y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            life: Math.min(GAME_CONFIG.PARTICLE_MAX_LIFE, 30 + Math.random() * 20),
+            color: colors.meteorite,
+            size: piece.size,
+        });
+    }
+    // Shrink maxTrailLength to match the now-smaller tail
+    player.maxTrailLength = Math.max(20, player.maxTrailLength - severed.length);
+    playSeverSound();
+    updateUI();
 }
 
 // Draw a regular polygon centered at origin (call inside ctx.save/translate/rotate)
@@ -326,6 +444,10 @@ function update() {
     if (frameCount > GAME_CONFIG.INITIAL_GRACE_PERIOD_FRAMES && frameCount % GAME_CONFIG.ENEMY_SPAWN_INTERVAL_FRAMES === 0) {
         spawnEnemy();
     }
+    // Spawn meteorites (after grace period, less frequent than regular enemies)
+    if (frameCount > GAME_CONFIG.INITIAL_GRACE_PERIOD_FRAMES && frameCount % GAME_CONFIG.METEORITE_SPAWN_INTERVAL_FRAMES === 0) {
+        spawnMeteorite();
+    }
 
     // Update enemies (reverse loop to safely remove elements)
     for (let i = enemies.length - 1; i >= 0; i--) {
@@ -345,11 +467,11 @@ function update() {
             continue;
         }
 
-        // Check collision with player ship (game over)
+        // Check collision with player ship (game over) - use squared distance for performance
         const dx = enemy.x - player.x;
         const dy = enemy.y - player.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-        if (distance < enemy.size + player.size) {
+        const shipThresh = enemy.size + player.size;
+        if (dx * dx + dy * dy < shipThresh * shipThresh) {
             gameOver();
             return;
         }
@@ -360,13 +482,12 @@ function update() {
             const piece = player.debrisPieces[j];
             const pdx = enemy.x - piece.x;
             const pdy = enemy.y - piece.y;
-            const pdist = Math.sqrt(pdx * pdx + pdy * pdy);
-            if (pdist < enemy.size + piece.size + GAME_CONFIG.TRAIL_COLLISION_RADIUS) {
+            const tailThresh = enemy.size + piece.size + GAME_CONFIG.TRAIL_COLLISION_RADIUS;
+            if (pdx * pdx + pdy * pdy < tailThresh * tailThresh) {
                 hitByTail = true;
                 break;
             }
         }
-        
         if (hitByTail) {
             // Enemy destroyed by tail - break into wreckage that stays on the field
             enemies.splice(i, 1);
@@ -412,6 +533,48 @@ function update() {
         }
     }
 
+    // Update meteorites (fast red rocks that sever the tail)
+    for (let i = meteorites.length - 1; i >= 0; i--) {
+        const m = meteorites[i];
+        m.x += m.vx;
+        m.y += m.vy;
+        m.rotation += 0.06;
+
+        // Remove off-screen meteorites
+        if (
+            m.x < -m.size * 2 ||
+            m.x > canvas.width + m.size * 2 ||
+            m.y < -m.size * 2 ||
+            m.y > canvas.height + m.size * 2
+        ) {
+            meteorites.splice(i, 1);
+            continue;
+        }
+
+        // Check collision with player ship (game over)
+        const mdx = m.x - player.x;
+        const mdy = m.y - player.y;
+        const mShipThresh = m.size + player.size;
+        if (mdx * mdx + mdy * mdy < mShipThresh * mShipThresh) {
+            gameOver();
+            return;
+        }
+
+        // Check collision with tail pieces – sever tail at the hit point
+        for (let j = GAME_CONFIG.TRAIL_COLLISION_BUFFER; j < player.debrisPieces.length; j++) {
+            const piece = player.debrisPieces[j];
+            const pdx = m.x - piece.x;
+            const pdy = m.y - piece.y;
+            const mTailThresh = m.size + piece.size;
+            if (pdx * pdx + pdy * pdy < mTailThresh * mTailThresh) {
+                severTailAt(j);
+                createParticles(m.x, m.y, colors.meteorite, 12);
+                meteorites.splice(i, 1);
+                break;
+            }
+        }
+    }
+
     // Update wreckage (stays on field until picked up by tail)
     for (let i = wreckage.length - 1; i >= 0; i--) {
         const w = wreckage[i];
@@ -432,7 +595,8 @@ function update() {
             const piece = player.debrisPieces[j];
             const pdx = w.x - piece.x;
             const pdy = w.y - piece.y;
-            if (Math.sqrt(pdx * pdx + pdy * pdy) < piece.size + w.size + GAME_CONFIG.WRECKAGE_PICKUP_RADIUS) {
+            const pickThresh = piece.size + w.size + GAME_CONFIG.WRECKAGE_PICKUP_RADIUS;
+            if (pdx * pdx + pdy * pdy < pickThresh * pickThresh) {
                 // Pick up wreckage: add to tail, grow maxTrailLength proportional to debris size
                 // Divide by 2 so small pieces (~size 3) add 1-2 length, large pieces (~size 6) add 3
                 player.maxTrailLength += Math.max(1, Math.ceil(w.size / 2));
@@ -482,8 +646,16 @@ function update() {
 
 // Draw game
 function draw() {
-    // Clear canvas with fade effect
-    ctx.fillStyle = 'rgba(10, 10, 26, 0.3)';
+    // Clear canvas with fade effect; pulsate background glow when playing and tail is growing
+    if (gameState === 'playing') {
+        const pulse = Math.sin(frameCount * GAME_CONFIG.BACKGROUND_PULSE_SPEED) * 0.5 + 0.5;
+        const tailIntensity = Math.min(1, player.debrisPieces.length / GAME_CONFIG.TAIL_GLOW_MAX_LENGTH);
+        const r = Math.floor(10 + pulse * 15 * tailIntensity);
+        const b = Math.floor(26 + pulse * 30 * tailIntensity);
+        ctx.fillStyle = `rgba(${r}, 8, ${b}, 0.3)`;
+    } else {
+        ctx.fillStyle = 'rgba(10, 10, 26, 0.3)';
+    }
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     if (gameState === 'menu') {
@@ -502,21 +674,22 @@ function draw() {
 // Draw game elements
 function drawGameElements() {
     // Draw stars (moving starfield background)
+    // Shadow set once for all stars to avoid 200 GPU state changes per frame
     ctx.fillStyle = '#ffffff';
+    ctx.shadowColor = '#ffffff';
+    ctx.shadowBlur = 3;
     for (let i = 0; i < stars.length; i++) {
         const star = stars[i];
         // Calculate perspective: closer stars (lower z) appear larger and brighter
-        const scale = GAME_CONFIG.MAX_STAR_DEPTH / (star.z + 1); // Perspective scale
+        const scale = GAME_CONFIG.MAX_STAR_DEPTH / (star.z + 1);
         const screenX = (star.x - canvas.width / 2) * scale + canvas.width / 2;
         const screenY = (star.y - canvas.height / 2) * scale + canvas.height / 2;
-        const size = Math.max(0.5, scale * GAME_CONFIG.STAR_SIZE_SCALE); // Star size based on depth
-        const alpha = Math.min(1, scale * GAME_CONFIG.STAR_ALPHA_SCALE); // Brightness based on depth
-        
+        const size = Math.max(0.5, scale * GAME_CONFIG.STAR_SIZE_SCALE);
+        const alpha = Math.min(1, scale * GAME_CONFIG.STAR_ALPHA_SCALE);
+
         // Only draw stars that are on screen
         if (screenX >= 0 && screenX <= canvas.width && screenY >= 0 && screenY <= canvas.height) {
             ctx.globalAlpha = alpha;
-            ctx.shadowBlur = size * 2;
-            ctx.shadowColor = '#ffffff';
             ctx.fillRect(screenX - size / 2, screenY - size / 2, size, size);
         }
     }
@@ -524,31 +697,32 @@ function drawGameElements() {
     ctx.shadowBlur = 0;
 
     // Draw debris pieces (tail made of polygon shapes)
-    player.debrisPieces.forEach((piece, i) => {
+    // shadowBlur and shadowColor set once outside the loop to avoid per-piece GPU state changes
+    ctx.shadowBlur = 12;
+    ctx.shadowColor = colors.debris;
+    for (let i = 0; i < player.debrisPieces.length; i++) {
+        const piece = player.debrisPieces[i];
         const alpha = Math.min(1, i / (player.debrisPieces.length * 0.3));
-        const scale = 1 + (piece.z / GAME_CONFIG.PERSPECTIVE_SCALE_FACTOR); // 3D perspective scaling
-        const renderSize = piece.size * scale;
-        
-        ctx.save();
-        ctx.translate(piece.x, piece.y);
-        ctx.rotate(piece.rotation);
-        ctx.fillStyle = colors.debris;
-        ctx.shadowBlur = 15 * scale;
-        ctx.shadowColor = colors.debris;
+        const cos = Math.cos(piece.rotation);
+        const sin = Math.sin(piece.rotation);
+
         ctx.globalAlpha = alpha;
-        
-        // Draw as a polygon shape
-        drawPolygon(ctx, renderSize, piece.sides || 4);
+        // setTransform avoids save/restore overhead: translate to piece position then rotate
+        ctx.setTransform(cos, sin, -sin, cos, piece.x, piece.y);
+
+        ctx.fillStyle = colors.debris;
+        drawPolygon(ctx, piece.size, piece.sides || 4);
         ctx.fill();
-        
+
         // Add highlight for depth effect
         ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
-        drawPolygon(ctx, renderSize * 0.5, piece.sides || 4);
+        drawPolygon(ctx, piece.size * 0.5, piece.sides || 4);
         ctx.fill();
-        
-        ctx.globalAlpha = 1;
-        ctx.restore();
-    });
+    }
+    // Reset transform and alpha
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur = 0;
 
     // Draw connecting line between debris pieces (subtle)
     if (player.debrisPieces.length > 1) {
@@ -675,18 +849,52 @@ function drawGameElements() {
         ctx.restore();
     });
 
-    // Draw particles
-    particles.forEach((particle) => {
+    // Draw meteorites (fast-moving red rocks that sever the tail)
+    ctx.shadowColor = colors.meteorite;
+    ctx.shadowBlur = 20;
+    for (let i = 0; i < meteorites.length; i++) {
+        const m = meteorites[i];
+        const cos = Math.cos(m.rotation);
+        const sin = Math.sin(m.rotation);
+        ctx.setTransform(cos, sin, -sin, cos, m.x, m.y);
+        ctx.fillStyle = colors.meteorite;
+
+        // Draw pre-computed irregular rock shape
+        ctx.beginPath();
+        const sides = m.radiusOffsets.length;
+        for (let k = 0; k < sides; k++) {
+            const angle = (k / sides) * Math.PI * 2;
+            const r = m.size * m.radiusOffsets[k];
+            const px = Math.cos(angle) * r;
+            const py = Math.sin(angle) * r;
+            if (k === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        ctx.fill();
+
+        // Bright core highlight
+        ctx.fillStyle = 'rgba(255, 160, 160, 0.8)';
+        ctx.beginPath();
+        ctx.arc(0, 0, m.size * 0.35, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.shadowBlur = 0;
+
+    // Draw particles - shadowBlur set once outside loop
+    ctx.shadowBlur = 10;
+    for (let i = 0; i < particles.length; i++) {
+        const particle = particles[i];
         const alpha = particle.life / GAME_CONFIG.PARTICLE_MAX_LIFE;
         ctx.fillStyle = particle.color;
-        ctx.shadowBlur = 10;
         ctx.shadowColor = particle.color;
         ctx.globalAlpha = alpha;
         ctx.beginPath();
         ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
         ctx.fill();
-        ctx.globalAlpha = 1;
-    });
+    }
+    ctx.globalAlpha = 1;
 
     ctx.shadowBlur = 0;
 }
@@ -739,6 +947,7 @@ function drawGameOver() {
 function gameOver() {
     gameState = 'gameover';
     bgMusic.pause();
+    playExplosionSound();
     
     // Magnificent explosion with multiple waves
     createParticles(player.x, player.y, colors.ship, 50);

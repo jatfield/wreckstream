@@ -14,9 +14,12 @@ Wreckstream is an arcade game where you pilot a ship with a glowing polygon debr
 - **Polygon Debris Tail**: Your ship trails a chain of glowing polygon shapes that grows as you collect wreckage
 - **Wreckage Pickup Mechanic**: Destroyed enemies leave debris on the field — collect it by sweeping your tail over it; the tail grows in proportion to debris size
 - **Speed-Dependent Tail**: The visible tail length scales with your movement speed
+- **Meteorites**: Fast-moving red rocks that can sever your tail — the severed section explodes in a burst of red particles
 - **Mouse & Keyboard Controls**: Smooth mouse-driven movement with optional WASD/Arrow key control
 - **Progressive Difficulty**: Enemies spawn continuously, increasing the challenge
-- **Particle Effects**: Stunning visual effects when enemies are destroyed and wreckage is collected
+- **Particle Effects**: Stunning visual effects when enemies are destroyed, wreckage is collected, and the tail is severed
+- **Pulsating Background**: The background pulses with a subtle violet glow as your tail grows
+- **Sound Effects**: Synthesised explosion boom on ship death and crackle when the tail is severed
 - **Score Tracking**: Earn points for each enemy caught in your tail
 
 ## How to Play
@@ -34,11 +37,14 @@ Wreckstream is an arcade game where you pilot a ship with a glowing polygon debr
 - **Ship**: The player-controlled pink neon ship, rendered with a 3D tilt toward the screen
 - **Polygon Debris Tail**: A chain of glowing polygons (triangles, quads, pentagons, hexagons) that follow your ship's path; visible length depends on speed
 - **Enemies**: Green 3D objects that spawn from screen edges and fly across the field
+- **Meteorites**: Fast red rocks that spawn periodically — they sever your tail if they hit it
 - **Wreckage**: When an enemy is destroyed, polygon debris pieces scatter and stay on the field; collect them by moving your tail over them
 - **Tail Growth**: Picking up wreckage grows your tail — larger debris pieces add more length
 - **Collision**:
-  - Direct hit on ship = Game Over
+  - Direct hit on ship = Game Over (with explosion boom)
+  - Enemy or meteorite touches ship = Game Over
   - Enemy touches tail = Enemy destroyed, wreckage scattered
+  - Meteorite touches tail = Tail severed at that point, severed section explodes
   - Tail touches wreckage = Wreckage collected, tail grows
 
 ## Controls
