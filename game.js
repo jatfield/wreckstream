@@ -22,6 +22,11 @@ const GAME_CONFIG = {
     STAR_ALPHA_SCALE: 0.3,             // Scale factor for star brightness based on depth
 };
 
+// Background music
+const bgMusic = new Audio('score.mp3');
+bgMusic.loop = true;
+bgMusic.addEventListener('error', () => console.warn('Background music failed to load.'));
+
 // Game state
 let gameState = 'menu'; // menu, playing, gameover
 let score = 0;
@@ -133,6 +138,8 @@ function startGame() {
     wreckage = [];
     initStars(); // Initialize starfield background
     frameCount = 0;
+    bgMusic.currentTime = 0;
+    bgMusic.play().catch((e) => { if (e.name !== 'NotAllowedError') console.warn('Music playback failed:', e); });
     updateUI();
 }
 
@@ -268,11 +275,6 @@ function update() {
     player.x = Math.max(player.size, Math.min(canvas.width - player.size, player.x));
     player.y = Math.max(player.size, Math.min(canvas.height - player.size, player.y));
 
-    // Update trail and visible tail length based on speed
-    // speedFactor is in range [0, 1] because actualSpeed is clamped to player.speed above
-    const speedFactor = actualSpeed / player.speed;
-    const visibleTailLength = Math.floor(player.maxTrailLength * speedFactor);
-    
     if (player.vx !== 0 || player.vy !== 0 || player.trail.length === 0) {
         player.trail.push({ x: player.x, y: player.y });
         if (player.trail.length > player.maxTrailLength) {
@@ -296,9 +298,10 @@ function update() {
         }
         
         // Update existing debris pieces to follow trail positions
+        // debrisPieces[0] is the newest piece (closest to ship), mapped to trail[trail.length-1] (most recent position)
         const spacing = Math.max(1, Math.floor(player.trail.length / Math.min(player.debrisPieces.length, player.maxTrailLength)));
         for (let i = 0; i < player.debrisPieces.length && i * spacing < player.trail.length; i++) {
-            const trailIndex = Math.min(i * spacing, player.trail.length - 1);
+            const trailIndex = Math.max(0, (player.trail.length - 1) - i * spacing);
             const piece = player.debrisPieces[i];
             if (player.trail[trailIndex]) {
                 // Smoothly move debris to trail position
@@ -310,14 +313,10 @@ function update() {
         }
     }
     
-    // Remove excess or dead debris pieces
-    // Pieces are removed if: lifetime expired, or exceeds max capacity
-    // Only remove based on visible tail length when speed is low (stopped)
+    // Remove excess or dead debris pieces (lifetime expired or exceeds max capacity)
     for (let i = player.debrisPieces.length - 1; i >= 0; i--) {
         const piece = player.debrisPieces[i];
-        const shouldRemove = piece.life <= 0 || 
-                           player.debrisPieces.length > player.maxTrailLength ||
-                           (actualSpeed < GAME_CONFIG.MIN_MOVEMENT_SPEED && i >= visibleTailLength);
+        const shouldRemove = piece.life <= 0 || player.debrisPieces.length > player.maxTrailLength;
         if (shouldRemove) {
             player.debrisPieces.splice(i, 1);
         }
@@ -739,6 +738,7 @@ function drawGameOver() {
 // Game over
 function gameOver() {
     gameState = 'gameover';
+    bgMusic.pause();
     
     // Magnificent explosion with multiple waves
     createParticles(player.x, player.y, colors.ship, 50);
