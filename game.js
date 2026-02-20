@@ -179,7 +179,7 @@ function createParticles(x, y, color, count = 10) {
             y,
             vx: (Math.random() - 0.5) * 4,
             vy: (Math.random() - 0.5) * 4,
-            life: 30 + Math.random() * 20,
+            life: Math.min(GAME_CONFIG.PARTICLE_MAX_LIFE, 35 + Math.random() * 15),
             color,
             size: 2 + Math.random() * 3,
         });
@@ -210,18 +210,31 @@ function update() {
 
     frameCount++;
 
-    // Player movement - use mouse control
-    const dx = mouse.x - player.x;
-    const dy = mouse.y - player.y;
+    // Player movement - keyboard (WASD/Arrows) or mouse control
+    const keyboardX = (keys['d'] || keys['D'] || keys['ArrowRight'] ? 1 : 0) - (keys['a'] || keys['A'] || keys['ArrowLeft'] ? 1 : 0);
+    const keyboardY = (keys['s'] || keys['S'] || keys['ArrowDown'] ? 1 : 0) - (keys['w'] || keys['W'] || keys['ArrowUp'] ? 1 : 0);
+    const hasKeyboardInput = keyboardX !== 0 || keyboardY !== 0;
+
+    const dx = hasKeyboardInput ? keyboardX : mouse.x - player.x;
+    const dy = hasKeyboardInput ? keyboardY : mouse.y - player.y;
     const distance = Math.sqrt(dx * dx + dy * dy);
     
     // Calculate actual speed based on movement (for tail length calculation)
     let actualSpeed = 0;
     
-    if (distance > 5) { // Dead zone to prevent jitter
-        const moveSpeed = Math.min(player.speed, distance * 0.15);
-        player.vx = (dx / distance) * moveSpeed;
-        player.vy = (dy / distance) * moveSpeed;
+    if (distance > (hasKeyboardInput ? 0 : 5)) { // Dead zone only for mouse to prevent jitter
+        const moveSpeed = hasKeyboardInput ? player.speed : Math.min(player.speed, distance * 0.15);
+        let velocityX = (dx / distance) * moveSpeed;
+        let velocityY = (dy / distance) * moveSpeed;
+
+        // Normalize keyboard diagonal movement
+        if (hasKeyboardInput && keyboardX !== 0 && keyboardY !== 0) {
+            velocityX *= GAME_CONFIG.DIAGONAL_MOVEMENT_FACTOR;
+            velocityY *= GAME_CONFIG.DIAGONAL_MOVEMENT_FACTOR;
+        }
+
+        player.vx = velocityX;
+        player.vy = velocityY;
         actualSpeed = Math.sqrt(player.vx * player.vx + player.vy * player.vy);
         
         // Update ship rotation to point in direction of movement
@@ -332,7 +345,7 @@ function update() {
             const pdx = enemy.x - piece.x;
             const pdy = enemy.y - piece.y;
             const pdist = Math.sqrt(pdx * pdx + pdy * pdy);
-            if (pdist < enemy.size + piece.size) {
+            if (pdist < enemy.size + piece.size + GAME_CONFIG.TRAIL_COLLISION_RADIUS) {
                 hitByTail = true;
                 break;
             }
@@ -354,7 +367,7 @@ function update() {
                     y: enemy.y,
                     vx: Math.cos(angle) * speed,
                     vy: Math.sin(angle) * speed,
-                    life: 30 + Math.random() * 30,
+                    life: Math.min(GAME_CONFIG.PARTICLE_MAX_LIFE, 40 + Math.random() * 10),
                     color: colors.enemy,
                     size: 3 + Math.random() * 4,
                 });
@@ -627,7 +640,7 @@ function gameOver() {
             y: player.y,
             vx: Math.cos(angle) * speed,
             vy: Math.sin(angle) * speed,
-            life: 60 + Math.random() * 40,
+            life: Math.min(GAME_CONFIG.PARTICLE_MAX_LIFE, 45 + Math.random() * 5),
             color: colors.ship,
             size: 4 + Math.random() * 6,
         });
@@ -642,7 +655,7 @@ function gameOver() {
             y: piece.y,
             vx: Math.cos(angle) * speed,
             vy: Math.sin(angle) * speed,
-            life: 40 + Math.random() * 30,
+            life: Math.min(GAME_CONFIG.PARTICLE_MAX_LIFE, 38 + Math.random() * 12),
             color: colors.debris,
             size: piece.size,
         });
