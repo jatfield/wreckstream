@@ -1,5 +1,11 @@
 # Vibe coding experiment
 
+## Idea: 
+
+An avoid'em up game. I'd like to see if it's possible to have a fun game without shooting. I'm imagining vibrant colors, polygons, a lot of particles. 
+Would be nice to have a soundtrack that reacts to the gameplay, with the music getting more intense as the tail grows and more objects are on the screen.
+Maybe pulsating background?
+
 ## Starting instructions:
 
 "An arcade 2d javascript game that's set in a neonic pastelle coloured universe. The player controls a ship that has a tail of debris and the goal is to avoid objects flying in from the edges of the screen. The objects caught up in the tail are destroyed, and the debris left by them is added to the tail."
@@ -38,3 +44,13 @@
 - The background looks great, but I should've said tilt the player instead of rotating it toward the background. The ship is now pointing in the direction of movement, but it doesn't have a 3d look to it.
 - Instead of giving a new prompt, I used the in editor copilot to implement the collision radius, and it works great. The game is much more enjoyable now.
 - The copilot also went ahead and implemented logic for the also unused DIAGONAL_MOVEMENT_FACTOR, which makes the ship move faster when moving diagonally. It's a nice touch, but it only works when the player is using the keyboard, not the mouse.
+
+4. "Update the readme to represent the current state. Tilt the ship toward the screen. Change the tail so it's made up of poligons, and also have the wreckage of the enemies stay on the playing field until picked up. The tail grows by picking up the wreckage, depending on the size of the debris."
+
+### Fifth version:
+
+- Did not manage to tilt the ship, and visually it's still too 2d.
+- The tail is getting further away from the player as it grows. Maybe this would be fun as a *powerup* (but at a fixed distance), but as the default state it's not very enjoyable.
+- It's fun to draw with the tail, maybe we also can do something with that in the future.
+- The tail grows not only by picking up the debris, but also by hitting the enemies, which is not what I had in mind.
+- The ship should be destroyed when it collides with the tail.
