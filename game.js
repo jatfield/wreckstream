@@ -11,6 +11,7 @@ const GAME_CONFIG = {
     MAX_ENEMY_SPEED: 2.0,
     WRECKAGE_PICKUP_RADIUS: 8,         // Extra pickup radius for wreckage collection
     TRAIL_COLLISION_BUFFER: 5,         // Exclude last N trail points from collision (prevents instant hits near ship)
+    SELF_COLLISION_BUFFER: 10,         // Exclude first N debris pieces from self-collision (prevents instant self-hit)
     TRAIL_COLLISION_RADIUS: 15,        // Collision detection radius for tail segments (more forgiving)
     DIAGONAL_MOVEMENT_FACTOR: Math.sqrt(2) / 2,  // Normalize diagonal movement
     PARTICLE_MAX_LIFE: 50,             // Maximum particle lifetime for alpha calculations
@@ -21,6 +22,11 @@ const GAME_CONFIG = {
     STAR_SIZE_SCALE: 0.5,              // Scale factor for star size based on depth
     STAR_ALPHA_SCALE: 0.3,             // Scale factor for star brightness based on depth
 };
+
+// Background music
+const bgMusic = new Audio('score.mp3');
+bgMusic.loop = true;
+bgMusic.volume = 0.5;
 
 // Game state
 let gameState = 'menu'; // menu, playing, gameover
@@ -105,6 +111,8 @@ function startGame() {
     gameState = 'playing';
     score = 0;
     gameOverDelay = 0; // Reset game over delay
+    bgMusic.currentTime = 0;
+    bgMusic.play().catch(() => {});
     player.x = canvas.width / 2;
     player.y = canvas.height / 2;
     player.z = 0;
@@ -296,9 +304,10 @@ function update() {
         }
         
         // Update existing debris pieces to follow trail positions
+        // piece[0] is closest to ship, so it maps to the most recent trail position (trail[last])
         const spacing = Math.max(1, Math.floor(player.trail.length / Math.min(player.debrisPieces.length, player.maxTrailLength)));
         for (let i = 0; i < player.debrisPieces.length && i * spacing < player.trail.length; i++) {
-            const trailIndex = Math.min(i * spacing, player.trail.length - 1);
+            const trailIndex = Math.max(0, player.trail.length - 1 - i * spacing);
             const piece = player.debrisPieces[i];
             if (player.trail[trailIndex]) {
                 // Smoothly move debris to trail position
@@ -326,6 +335,19 @@ function update() {
     // Spawn enemies (grace period at start, then spawn at intervals)
     if (frameCount > GAME_CONFIG.INITIAL_GRACE_PERIOD_FRAMES && frameCount % GAME_CONFIG.ENEMY_SPAWN_INTERVAL_FRAMES === 0) {
         spawnEnemy();
+    }
+
+    // Check collision with own tail (only when moving - like a snake game)
+    if (actualSpeed > GAME_CONFIG.MIN_MOVEMENT_SPEED) {
+        for (let j = GAME_CONFIG.SELF_COLLISION_BUFFER; j < player.debrisPieces.length; j++) {
+            const piece = player.debrisPieces[j];
+            const tdx = piece.x - player.x;
+            const tdy = piece.y - player.y;
+            if (Math.sqrt(tdx * tdx + tdy * tdy) < player.size + piece.size) {
+                gameOver();
+                return;
+            }
+        }
     }
 
     // Update enemies (reverse loop to safely remove elements)
