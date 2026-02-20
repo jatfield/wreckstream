@@ -54,3 +54,12 @@ Maybe pulsating background?
 - It's fun to draw with the tail, maybe we also can do something with that in the future.
 - The tail grows not only by picking up the debris, but also by hitting the enemies, which is not what I had in mind.
 - The ship should be destroyed when it collides with the tail.
+
+5. "The tail gets separated from the ship as it grows, this should be fixed. The tail should only grow when picking up debris, not when an enemy is destroyed. Collision with the tail should destroy the ship when it's moving. Add score.mp3 in present in repo as background music."
+6. "The ship still gets separated from the tail. When I stop and start there's a strange effect where the tail gets rebuilt from lines and points. Doesn't play music."
+
+### Sixth version:
+
+- Didn't make the tail kill the player, but I've decided that I like being able to make loops with the tail without worrying about colliding with it, so maybe it's better to leave it as is.
+- An enemy type that can severe the tail would make it more exciting
+- It gets choppy as the tail grows. Wonder if I can get the agent to optimize the code to make it smoother.
