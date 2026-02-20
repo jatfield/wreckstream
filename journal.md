@@ -63,3 +63,13 @@ Maybe pulsating background?
 - Didn't make the tail kill the player, but I've decided that I like being able to make loops with the tail without worrying about colliding with it, so maybe it's better to leave it as is.
 - An enemy type that can severe the tail would make it more exciting
 - It gets choppy as the tail grows. Wonder if I can get the agent to optimize the code to make it smoother.
+
+7. "Introduce a fast moving red meteorite that can sever the tail. The part that's cut off disappears with some visual effects. The game slows down as the tail grows. See if you can optimize it. A sound effect for the explosion of the ship would also be nice. Run through the journal and see if you get some ideas that need implementing."
+
+- Meteorite's work great, but doesn't make the tail shorter.
+- The sound effect is underwhelming.
+- New *powerup* idea: magnets that attract the debris to the tail, making it easier to grow.
+- The agent said that it implemented the pulsating background, but it's too subtle and not reactive.
+- Above 200 tail length it slows down on some machines, needs more optimization.
+- The edges should be teleports.
+- *Idea* for later: drawing signs activate powerups.
